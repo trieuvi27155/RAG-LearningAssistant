@@ -1,0 +1,49 @@
+﻿cau_hoi,cau_tra_loi,precision_at_k,recall_at_k,faithfulness,faithfulness_dang_ngo,faithfulness_dao_dong,faithfulness_bam_ngu_canh,answer_relevance,citation_accuracy,so_cap_trich_dan_da_kiem,do_tre_giay,loai_tai_lieu,loai_cau_hoi
+What are Haar-like features and how are they computed?,"1. Haar-like features are simple digital image features that were introduced in a real-time face detector [2].
+2. They come into different types: edge features, line features and four-rectangle features [1].
+3. Each Haar-like feature is computed as a rectangle sum where the feature value is obtained by subtracting the sum of pixels under the white rectangle from the sum of pixels under the black rectangle [3].
+4. These features can be efficiently computed on any scale in constant time using an integral image [2].",0.75,1.0,1.0,0,0.0,0.273,1.0,1.0,4,30.81,slide_tieng_anh,truy_xuat
+How many bins does the HOG histogram use for each 8x8 cell?,"The HOG histogram uses 9 bins for each 8×8 cell [1, 2, 3].",0.5,1.0,1.0,0,0.0,0.1,1.0,0.6666666666666666,3,27.28,slide_tieng_anh,truy_xuat
+What classifier is used together with HOG features for pedestrian detection?,"Linear SVM classifier according to [1], [2], and [4].",0.25,0.5,0.0,0,0.0,0.0,1.0,0.3333333333333333,3,20.25,slide_tieng_anh,truy_xuat
+Các bước tính đặc trưng HOG gồm những bước nào?,"1. Preprocessing [1].  
+2. Calculate the Gradient Images [1].  
+3. Calculate Histogram of Gradients in 8×8 cells [1].  
+4. 16×16 Block Normalization [1].  
+5. Calculate the Histogram of Oriented Gradients feature vector [1].",0.25,1.0,1.0,0,0.0,0.8,1.0,1.0,5,34.15,slide_tieng_anh,cheo_ngon_ngu
+Ảnh tích phân (integral image) được định nghĩa như thế nào?,"1. Ảnh tích phân I(j1, j2) được định nghĩa là tổng của các pixel nằm phía trên và bên trái điểm (j1, j2) với công thức I(j1, j2) = Σ (u=0 đến j1-1) Σ (v=0 đến j2-1) X(u, v) theo [1].  
+2. Ảnh tích phân được định nghĩa tương tự như vậy trong tài liệu [2].",0.5,1.0,0.5,0,0.5,0.0,1.0,0.5,2,96.96,slide_tieng_anh,cheo_ngon_ngu
+Kích thước ảnh dùng cho bài toán phát hiện người đi bộ là bao nhiêu?,"Kích thước ảnh dùng cho bài toán phát hiện người đi bộ là 64 x 128 theo [1], [2], [3].",0.5,1.0,0.0,0,0.0,0.0,1.0,0.5,3,40.58,slide_tieng_anh,cheo_ngon_ngu
+Ý tưởng cốt lõi của Fully Convolutional Networks là gì?,1. Thay thế fully connected layer bằng convolution layer [1].,0.25,1.0,1.0,0,0.0,0.833,1.0,1.0,1,31.95,dai_tieng_viet,truy_xuat
+FCN-8s đạt Mean IU bao nhiêu trên tập PASCAL VOC?,FCN-8s đạt Mean IU là 62.7 trên tập PASCAL VOC theo kết quả thực nghiệm được trình bày trong bảng so sánh của chương XI [1].,0.25,1.0,1.0,0,0.0,0.0,1.0,0.5,1,30.63,dai_tieng_viet,doc_bang
+Thời gian suy luận của FCN-8s so với SDS là bao nhiêu?,"Thời gian suy luận của FCN-8s là khoảng 175ms, trong khi SDS là khoảng 50 giây theo [1].",0.25,1.0,1.0,0,0.0,0.0,1.0,1.0,1,43.03,dai_tieng_viet,doc_bang
+FCN-16s kết hợp những feature map nào với nhau?,"1. FCN-16s kết hợp conv7 output và pool4 feature map [1, 2].",0.5,1.0,1.0,0,0.0,0.333,1.0,1.0,2,52.54,dai_tieng_viet,truy_xuat
+Giá trị momentum dùng khi huấn luyện FCN là bao nhiêu?,Giá trị momentum dùng khi huấn luyện FCN là 0.9 theo [1].,0.5,1.0,1.0,0,0.0,0.0,1.0,1.0,1,38.09,dai_tieng_viet,truy_xuat
+Những hạn chế của FCN là gì?,Không tìm thấy thông tin trong tài liệu.,0.25,1.0,1.0,0,0.0,0.0,0.0,,0,141.13,dai_tieng_viet,truy_xuat
+Deconvolution layer trong FCN được khởi tạo bằng cách nào?,Deconvolution layer trong FCN được khởi tạo bằng bilinear interpolation [1].,0.25,1.0,1.0,0,0.0,0.375,1.0,1.0,1,49.2,dai_tieng_viet,truy_xuat
+Có phải FCN-32s cho kết quả phân đoạn tốt nhất trong ba biến thể không?,"Căn cứ: theo [3]: ""FCN-8s đạt kết quả tốt nhất. [...] [BẢNG] | Model | Mean IU | [...] | FCN-32s | 59.4 | [...] | FCN-16s | 62.4 | [...] | FCN-8s | 62.7 |""
+
+Đối chiếu: Khẳng định của người dùng là ""FCN-32s cho kết quả phân đoạn tốt nhất trong ba biến thể"". Tài liệu chỉ ra:  
+- Chi tiết khớp: FCN-32s có Mean IU = 59.4 (trong bảng so sánh).  
+- Chi tiết không khớp: FCN-8s có Mean IU = 62.7 (cao nhất), không phải FCN-32s. Tài liệu khẳng định rõ ""FCN-8s đạt kết quả tốt nhất"" (trong phần Experimental Results).  
+
+KẾT LUẬN: SAI",0.25,1.0,0.0,0,1.0,0.0,1.0,1.0,1,34.99,dai_tieng_viet,kiem_chung
+MQTT là giao thức gì và hoạt động theo mô hình nào?,"1. MQTT là giao thức truyền thông điệp (Message Queuing Telemetry Transport) [1,3].  
+2. MQTT hoạt động theo mô hình publish/subscribe [1,3,4].",0.25,0.5,1.0,0,0.0,0.25,1.0,1.0,5,50.97,slide_tieng_viet,truy_xuat
+"Trong Adafruit IO, kênh dữ liệu được gọi là gì?","1. Trong Adafruit IO, kênh dữ liệu được gọi là Feed [1].",0.25,1.0,1.0,0,0.0,0.875,1.0,1.0,1,31.94,slide_tieng_viet,truy_xuat
+Kiến trúc phân lớp của một hệ thống IoT gồm những tầng nào?,"1. Tầng thiết bị (Sensors & Actuators) [1]  
+2. Tầng truyền thông (Communication Network) [1]",0.25,0.3333333333333333,1.0,0,0.0,0.0,1.0,0.5,2,33.35,slide_tieng_viet,truy_xuat
+Nhược điểm của mô hình Publish/Subscribe là gì?,"1. Người đăng ký phải giả định rằng họ đang nhận được tất cả các tin nhắn đã được xuất bản, điều này có thể gây ra sự cố nếu họ bỏ sót một số thông tin nhất định [1].  
+2. Sự bất ổn khi mở rộng quy mô nhanh chóng [1].  
+3. Việc điều chỉnh tỷ lệ động có thể không cần thiết [1].  
+4. Mô hình Pub/Sub có thể quá phức tạp đối với các hoạt động quy mô nhỏ [1].",0.25,0.5,1.0,0,0.0,0.875,1.0,0.375,4,63.7,slide_tieng_viet,truy_xuat
+Tại sao SCADA không phù hợp hoàn toàn với IoT hiện đại?,"SCADA không phù hợp hoàn toàn với IoT hiện đại vì:
+1. Thiết bị theo tiêu chuẩn rất cụ thể theo [1].
+2. Phạm vi nhà sản xuất hạn chế theo [1].
+3. Kiến trúc đóng theo [1].
+4. Thiếu cơ chế bảo mật theo [1].
+5. Thiếu đảm bảo tính bảo mật dữ liệu theo [1].",0.5,1.0,1.0,0,0.0,0.667,1.0,1.0,5,38.13,slide_tieng_viet,truy_xuat
+Đề tài Intelligent Document Categorization System được xây dựng nhằm mục đích gì?,"1. Phát triển hệ thống phân loại tài liệu thông minh có khả năng tự động phân tích nội dung và sắp xếp tài liệu vào các nhóm phù hợp bằng cách ứng dụng các kỹ thuật Trí tuệ nhân tạo (AI), Xử lý ngôn ngữ tự nhiên (NLP) và Học máy (Machine Learning) [1].  
+2. Nâng cao hiệu quả quản lý thông tin, tối ưu hóa quá trình lưu trữ và tìm kiếm tài liệu, đồng thời góp phần hỗ trợ quá trình chuyển đổi số trong môi trường hiện đại [1].  
+3. Hỗ trợ tự động nhận diện, phân loại và sắp xếp tài liệu theo từng nhóm nội dung một cách nhanh chóng và chính xác [2].",0.75,1.0,1.0,0,0.0,0.941,1.0,1.0,3,71.34,dai_tieng_viet,truy_xuat
+Cách nấu phở bò truyền thống gồm những bước nào?,Không tìm thấy thông tin trong tài liệu.,0.0,0.0,1.0,0,0.0,0.0,0.0,,0,19.43,ngoai_pham_vi,tu_choi
+Đội tuyển nào vô địch World Cup 2022?,Không tìm thấy thông tin trong tài liệu.,0.0,0.0,1.0,0,0.0,0.0,1.0,,0,28.4,ngoai_pham_vi,tu_choi

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la \"/c/Users/PC/AppData/Roaming/Code/User/History\" 2>&1 | head -20; echo \"---checking workspace .history---\"; find \"C:/Users/PC/source/repos/rag-do-an\" -iname \".history\" -maxdepth 2 2>&1)",
+      "Read(//c/Users/PC/AppData/Roaming/Code/User/History/**)",
+      "Bash(./.venv/Scripts/python.exe -c ' *)"
+    ]
+  }
+}

@@ -1,0 +1,148 @@
+﻿cau_hoi,cau_tra_loi,precision_at_k,recall_at_k,faithfulness,faithfulness_dang_ngo,faithfulness_dao_dong,faithfulness_bam_ngu_canh,answer_relevance,citation_accuracy,so_cap_trich_dan_da_kiem,do_tre_giay,loai_tai_lieu,loai_cau_hoi
+What is the bias-variance decomposition?,"The bias-variance decomposition refers to the breakdown of the expected squared error of a model into two components:
+
+1. The squared bias: This represents the extent to which the average prediction over all data sets differs from the desired regression function [3].
+2. The variance: This measures the extent to which the solutions for individual data sets vary around their average, and hence this measures the extent to which the function y(x;D) is sensitive to the particular choice of data set [3].
+3. The decomposition shows that the error due to a model is broken down into the bias component (arising from differences between the model and the true function to be predicted) and the variance component (representing the sensitivity of the model to individual data points) [2].",0.6666666666666666,1.0,1.0,0,0.0,0.125,1.0,0.6666666666666666,3,37.47,dai_tieng_anh,truy_xuat
+What is the Kullback-Leibler divergence?,"The Kullback-Leibler divergence (KL divergence) is a measure of dissimilarity between two probability distributions $p(x)$ and $q(x)$, defined as:
+
+$$
+\text{KL}(pq) = \int p(x) \ln q(x) \, dx - \int p(x) \ln p(x) \, dx
+$$
+
+This quantity has the following key properties:
+1. It is **not symmetrical** (i.e., $\text{KL}(pq) \neq \text{KL}(qp)$).
+2. It **satisfies** $\text{KL}(pq) \geq 0$ with equality if and only if $p(x) = q(x)$ for all $x$.
+3. It **represents the additional information** required to specify values of $x$ using the distribution $q(x)$ instead of $p(x)$.
+
+This definition and interpretation align with the context provided in the query.",0.16666666666666666,0.5,0.5,0,0.0,0.0,1.0,0.0,0,69.13,dai_tieng_anh,truy_xuat
+What is a mixture of Gaussians?,"A mixture of Gaussians is a probabilistic model that represents a superposition of Gaussian densities. According to the context:
+
+1. It is defined as a superposition of K Gaussian densities of the form p(x) = Σ(πk N(x|μk, Σk)) from k=1 to K [1].
+2. Each Gaussian component in the mixture has its own mean μk and covariance Σk [1].
+3. The parameters πk in this formulation are called mixing coefficients [1].
+4. The mixing coefficients satisfy the condition that their sum equals 1 (Σπk = 1) and each mixing coefficient is between 0 and 1 (0 ≤ πk ≤ 1) [1].
+5. This model can be formulated as probabilistic models known as mixture distributions [2].
+6. By using a sufficient number of Gaussians and adjusting their means, covariances, and coefficients in the linear combination, almost any continuous density can be approximated to arbitrary accuracy [2].
+7. In terms of latent variables, it can be represented using a K-dimensional binary random variable z with a single component equal to 1 [3].",0.3333333333333333,1.0,1.0,0,0.0,0.0,1.0,0.7142857142857143,7,29.54,dai_tieng_anh,truy_xuat
+What is the pinhole camera model?,"The pinhole camera model is defined as:
+
+1. The simplest mathematical model that can be applied to a lot of real photography devices [1].
+2. A simplified representation of how light travels through a small aperture to form an image on a photosensitive surface [4].
+3. It defines the geometric relationship between a 3D point and its 2D corresponding projection onto the image plane through perspective projection [3].
+4. It provides a straightforward and intuitive way to understand the fundamental principles of image formation [4].
+5. In computer vision, it is used for camera calibration to find intrinsic parameters (focal length and optical center) and extrinsic parameters (position and orientation of the camera) [2].
+6. When the camera matrix equals the identity matrix and distortion coefficients are set to zero, it represents the pinhole camera model where light passes through a single point to form an inverted image [5].",0.8333333333333334,0.8,1.0,0,0.0,0.231,1.0,0.8333333333333334,6,34.94,slide_tieng_anh,truy_xuat
+How does the SIFT descriptor work?,"The SIFT descriptor works through the following mechanisms:
+1. Orientation invariance is achieved by rotating the coordinates of the descriptor and gradient orientations relative to the keypoint orientation [2].
+2. The parameter ""σ equal 1.5 times of σ of keypoint scale"" is used to avoid sudden changes in the descriptor with small changes in the position of the window, and to give less emphasis to gradients that are far from the center of the descriptor [2].
+3. The feature vector is normalized to unit length to avoid linear changes of illumination [2].",0.5,1.0,1.0,0,0.0,0.0,1.0,1.0,3,30.08,slide_tieng_anh,truy_xuat
+What is RANSAC used for?,"RANSAC (Random Sample Consensus) is used for:
+
+1. Estimating homography matrices between two images of the same scene captured from different viewpoints [2].
+2. Selecting best-fit 4 point pairs when there are many corresponding points between two images [1].
+3. Estimating affine transformations [3].
+4. Improving matching process detection in image stitching [5].
+5. Solving systems of equations for affine transformation estimation with robustness against outliers [4].",0.6666666666666666,1.0,1.0,0,0.0,0.0,1.0,0.7,5,50.87,slide_tieng_anh,truy_xuat
+What is the Lucas-Kanade algorithm?,"The Lucas-Kanade algorithm is an optical flow algorithm that estimates motion.
+
+1. It is based on the brightness constancy principle [1].
+2. It assumes that motion is essentially constant in a local neighborhood [2].
+3. It solves a system of linear equations for each pixel, considering the gradient of the image and temporal gradients [2].
+4. It linearizes image intensity variations in both spatial and temporal dimensions to estimate local motion [3].
+5. It finds motion (u, v) that minimizes the sum-squared error of the brightness constancy equations for each pixel in a window [3].
+6. It formulates a system of linear equations for each pixel in a local window [3].
+7. It is classified as a sparse optical flow method [5].",0.6666666666666666,1.0,1.0,0,0.0,0.111,1.0,0.9285714285714286,7,48.23,slide_tieng_anh,truy_xuat
+What is the brightness constancy constraint equation?,"The brightness constancy constraint equation is expressed as:
+
+𝐼 𝑢 + 𝐼 𝑣 + 𝐼 = 0
+𝑥 𝑦 𝑡
+
+according to [1]. This equation states that the intensity (brightness) of a pixel remains constant over time, where 𝐼 is the partial derivative of image intensity with respect to spatial coordinates x and y, 𝐼 is the temporal derivative of image intensity with respect to time t, and u, v are the horizontal and vertical components of the optical flow vector representing pixel motion in the image.",0.3333333333333333,1.0,0.0,1,0.0,0.4,1.0,1.0,1,42.87,slide_tieng_anh,truy_xuat
+Nhà nước có những đặc điểm gì?,"Dựa trên ngữ cảnh được cung cấp, nhà nước có **ba đặc điểm chính** sau:
+
+1. **Thiết lập quyền lực công cộng đặc biệt** (không hòa nhập với dân cư): Nhà nước có quyền lực đặc biệt để duy trì trật tự xã hội, bao gồm các cơ quan thực thi pháp luật như quân đội, cảnh sát, và hệ thống pháp lý.
+2. **Có chủ quyền quốc gia**: Nhà nước sở hữu quyền kiểm soát toàn bộ lãnh thổ và dân cư trong phạm vi quốc gia, không bị ảnh hưởng bởi bên ngoài.
+3. **Phân chia dân cư theo lãnh thổ**: Nhà nước tổ chức và quản lý dân cư dựa trên ranh giới địa lý, tạo ra các đơn vị hành chính để thực hiện chức năng quản lý.
+
+*Ghi chú*: Ngữ cảnh chỉ nêu rõ 3 đặc điểm trong số 5 đặc điểm được đề cập trong tài liệu (theo phần [1]), do đó câu trả lời tập trung vào những nội dung được mô tả cụ thể trong ngữ cảnh cung cấp.",0.5,1.0,1.0,0,0.0,0.0,1.0,0.0,1,48.83,dai_tieng_viet,truy_xuat
+Vi phạm pháp luật gồm những dấu hiệu nào?,"Vi phạm pháp luật gồm các dấu hiệu sau:
+
+1. **Dấu hiệu khách quan**:
+   - Hành vi trái pháp luật
+   - Hậu quả (sự thiệt hại)
+   - Thời gian vi phạm
+   - Địa điểm vi phạm
+   - Công cụ, phương tiện vi phạm
+   - Cách thức vi phạm
+
+2. **Dấu hiệu chủ quan**:
+   - Lỗi của chủ thể vi phạm pháp luật
+   - Động cơ
+   - Mục đích
+
+*Giải thích*: Dựa trên ngữ cảnh cung cấp, các dấu hiệu này được phân loại rõ ràng theo hai nhóm (khách quan và chủ quan) và được mô tả cụ thể trong các tài liệu pháp lý (đặc biệt là phần phân tích về dấu hiệu cấu thành vi phạm pháp luật trong giáo trình). Trong đó, dấu hiệu khách quan liên quan đến yếu tố bên ngoài có thể quan sát được, còn dấu hiệu chủ quan liên quan đến tâm lý, ý thức của chủ thể vi phạm.",0.5,1.0,0.5,0,0.0,0.062,1.0,0.0,0,51.74,dai_tieng_viet,truy_xuat
+Trách nhiệm pháp lý được truy cứu khi nào?,"Trách nhiệm pháp lý được truy cứu khi có vi phạm pháp luật xảy ra [2]. Ngoài ra, trong một số trường hợp đặc biệt, pháp luật cho phép áp dụng trách nhiệm pháp lý ngay cả khi không có vi phạm pháp luật, ví dụ như cha mẹ phải bồi thường khi người dưới 15 tuổi gây thiệt hại [2].",0.5,1.0,1.0,0,0.0,0.538,1.0,0.75,2,49.41,dai_tieng_viet,truy_xuat
+Bản chất giai cấp của nhà nước thể hiện qua những dấu hiệu nào?,"Bản chất giai cấp của nhà nước thể hiện qua ba dấu hiệu sau:
+
+1. **Quyền lực kinh tế**  
+2. **Quyền lực chính trị**  
+3. **Quyền lực tư tưởng**  
+
+*Giải thích*: Dựa vào ngữ cảnh đã cung cấp (đặc biệt là phần phân tích về chức năng và bản chất nhà nước trong tài liệu), ba dấu hiệu trên phản ánh cách thức giai cấp cụ thể tác động và thể hiện trong hoạt động của nhà nước, phù hợp với khái niệm ""bản chất giai cấp"" được đề cập trong các văn bản chính trị - xã hội. Đây là kết luận trực tiếp từ nội dung phân tích về mối quan hệ giữa quyền lực và bản chất giai cấp trong hệ thống nhà nước.",0.5,1.0,1.0,0,0.0,0.04,1.0,0.0,0,70.15,dai_tieng_viet,truy_xuat
+Đối tượng điều chỉnh của luật hình sự là gì?,"1. Đối tượng điều chỉnh của Luật Hình sự là các quan hệ xã hội phát sinh giữa Nhà nước và cá nhân, tổ chức phạm tội khi chủ thể này thực hiện hành vi tội phạm [1].  
+2. Cụ thể, đối tượng điều chỉnh là quan hệ giữa Nhà nước và người/pháp nhân phạm tội [2].",0.6666666666666666,1.0,1.0,0,0.0,0.688,1.0,0.5,2,39.18,slide_tieng_viet,truy_xuat
+Luật hình sự có những nội dung khái quát chung nào?,"Luật hình sự có những nội dung khái quát chung sau:
+
+1. Khái niệm chung về Luật Hình sự [1]  
+2. Khái quát chung về Tội phạm và Hình phạt trong Luật Hình sự Việt Nam [1]",0.6666666666666666,0.8,1.0,0,0.0,0.125,1.0,1.0,2,31.84,slide_tieng_viet,truy_xuat
+Tên đề tài nghiên cứu khoa học là gì?,Ứng dụng mô hình ngôn ngữ lớn (LLMs) trong phân tích cảm xúc bình luận sản phẩm trên nền tảng thương mại điện tử theo [1].,0.3333333333333333,1.0,0.0,1,0.0,0.913,1.0,0.5,1,30.4,bieu_mau_co_bang,doc_bang
+Chủ nhiệm đề tài tên gì và mã số sinh viên bao nhiêu?,Chủ nhiệm đề tài tên là **Đổ Tiến Đạt** và mã số sinh viên là **2351010039** (thông tin được ghi trong bảng đăng ký đề tài nghiên cứu khoa học sinh viên năm 2026 tại phần [1]).,0.3333333333333333,1.0,1.0,0,0.0,0.353,1.0,0.5,1,34.91,bieu_mau_co_bang,doc_bang
+Đề tài thuộc lĩnh vực nào?,"Đề tài thuộc lĩnh vực **Khoa học máy tính** (Computer Science). 
+
+**Giải thích:**  
+Trong ngữ cảnh cung cấp, đề tài được mô tả ở phần [1] và [2] là nghiên cứu ứng dụng **học máy (Machine Learning)** và **ngôn ngữ tự nhiên (Natural Language Processing)** vào lĩnh vực **kinh doanh điện tử (e-commerce)**. Các kỹ thuật như Naive Bayes, SVM, mô hình BERT/PhoBERT, phân tích cảm xúc và xử lý văn bản được sử dụng để phát triển hệ thống hỗ trợ CRM, dashboard và chatbot. Điều này cho thấy đề tài nằm trong phạm vi **Khoa học máy tính**, cụ thể là lĩnh vực **Trí tuệ nhân tạo** và **ứng dụng công nghệ thông tin trong kinh tế số**. Các phần còn lại của ngữ cảnh ([3], [4], [5], [6]) không liên quan đến đề tài này. 
+
+→ **Trả lời:** Khoa học máy tính.",0.3333333333333333,1.0,1.0,0,0.0,0.0,1.0,0.75,2,49.81,bieu_mau_co_bang,doc_bang
+Mô hình camera lỗ kim hoạt động ra sao?,"1. Mô hình camera lỗ kim hoạt động bằng cách ánh sáng từ đối tượng đi qua lỗ (aperture) và chiếu lên bề mặt cảm biến (film) để tạo ra ảnh [1].  
+2. Quá trình này tạo ra ảnh ngược chiều do các tia sáng hạn chế đi qua lỗ kim [3].  
+3. Mô hình mô tả mối quan hệ hình học giữa điểm 3D và hình chiếu 2D trên mặt phẳng ảnh thông qua phép chiếu góc (perspective projection) [2].",1.0,1.0,1.0,0,0.0,0.0,1.0,1.0,3,61.08,slide_tieng_anh,cheo_ngon_ngu
+Luồng quang học (optical flow) được dùng để làm gì?,"Luồng quang học (optical flow) được dùng để:
+
+1. Phân tích chuyển động [1,2,4].  
+2. Ước lượng hướng và tốc độ chuyển động của vật thể di chuyển [1,2].  
+3. Theo dõi đối tượng [2,4,6].  
+4. Hiểu biết cảnh [2,4].  
+5. Trích xuất đặc trưng chuyển động để đưa vào mô hình học máy như SVM, AdaBoost [1].  
+6. Ứng dụng trong phân tích video, trích xuất khung hình và phân đoạn chuyển động (dense motion segmentation) [6].",0.6666666666666666,0.8,1.0,0,0.0,0.0,1.0,0.5,2,45.24,slide_tieng_anh,cheo_ngon_ngu
+Đặc trưng cục bộ SIFT là gì?,"Đặc trưng cục bộ SIFT là các mô tả đặc trưng được tính toán từ các điểm khóa (keypoints) trong ảnh, có tính bất biến với thay đổi kích thước, định hướng, nhiễu ảnh và góc nhìn nhỏ [1]. Các đặc trưng này được tạo ra bằng cách xác định các điểm cực trị của độ sáng cục bộ và tính toán mô tả xung quanh các điểm khóa [1]. Để đảm bảo tính bất biến định hướng, các tọa độ và hướng độ dốc của mô tả được xoay so với định hướng của điểm khóa [3]. Mô tả được chuẩn hóa thành vector đơn vị để tránh thay đổi tuyến tính do ánh sáng [3]. Đặc trưng SIFT còn sử dụng σ bằng 1.5 lần σ của kích thước điểm khóa nhằm tránh thay đổi đột ngột trong mô tả khi vị trí cửa sổ thay đổi [3].",0.5,1.0,1.0,0,0.0,0.0,1.0,1.0,5,56.93,slide_tieng_anh,cheo_ngon_ngu
+What are the characteristics of the state?,"Based on the provided context, the characteristics of the state are:
+
+1. The state establishes a special public power that does not blend with the population. This includes specialized personnel and machinery for managing society and carrying out coercive tasks (such as the army, police, courts, and prisons).
+
+2. The state has national sovereignty, which represents the state's independent self-determination in both internal and external policies without depending on external forces.
+
+3. The state divides the population by territory, creating administrative units to ensure the state's management operations are centralized, unified, and effective.
+
+The context [1] mentions that ""the state has five characteristics,"" but only three are explicitly listed in the provided excerpts. The context does not provide information about the other two characteristics.",0.3333333333333333,0.6666666666666666,1.0,0,0.0,0.0,1.0,0.5,1,34.99,dai_tieng_viet,cheo_ngon_ngu
+What does criminal law regulate?,"1. Criminal law regulates the definition of crimes: it specifies which behaviors have dangerous characteristics to society to be considered crimes [2].
+2. Criminal law regulates the application of punishments: it determines the strict coercive measures that individuals or legal entities who commit crimes must bear [2].",0.3333333333333333,0.6666666666666666,1.0,0,0.0,0.0,1.0,1.0,2,30.91,slide_tieng_viet,cheo_ngon_ngu
+"Tôi nhớ là nhà nước chỉ có 2 đặc điểm thôi, phải không?","KẾT LUẬN: SAI
+
+Căn cứ: theo [1]: ""Nhà nước có năm đặc điểm sau đây:7""
+
+Giải thích: Tài liệu khẳng định nhà nước có năm đặc điểm (a, b, c, ...), không phải hai đặc điểm như người dùng nhớ. Chi tiết mâu thuẫn: người dùng nói ""chỉ có 2 đặc điểm"" nhưng ngữ cảnh rõ ràng ghi ""năm đặc điểm"".",0.6666666666666666,1.0,1.0,0,0.0,0.0,1.0,1.0,1,16.99,dai_tieng_viet,kiem_chung
+Có phải đối tượng điều chỉnh của luật hình sự là quan hệ giữa hai công dân với nhau không?,"KẾT LUẬN: SAI
+
+Căn cứ: theo [1]: ""Đối tượng điều chỉnh của Luật Hình sự chính là các quan hệ xã hội nhất định chịu sự tác động và điều chỉnh của các quy phạm pháp luật thuộc ngành luật này. Đó là các quan hệ xã hội phát sinh giữa Nhà nước và cá nhân hay tổ chức phạm tội khi chủ thể này thực hiện hành vi tội phạm.""
+
+Giải thích: Khẳng định ""đối tượng điều chỉnh của luật hình sự là quan hệ giữa hai công dân với nhau"" sai vì tài liệu chỉ rõ đối tượng điều chỉnh của Luật Hình sự là quan hệ xã hội phát sinh giữa **Nhà nước và cá nhân hay tổ chức phạm tội** (theo [1]), không phải là quan hệ giữa hai công dân. Trong ngữ cảnh, không có thông tin nào đề cập đến đối tượng điều chỉnh của Luật Hình sự là quan hệ giữa hai công dân.",0.3333333333333333,1.0,1.0,0,0.0,0.304,1.0,0.75,2,17.32,slide_tieng_viet,kiem_chung
+"Theo tôi thì đề tài nghiên cứu này thuộc lĩnh vực Y sinh, đúng không?","KẾT LUẬN: SAI
+
+Căn cứ: theo [1] và [2], đề tài nghiên cứu được mô tả là ứng dụng mô hình ngôn ngữ lớn (large language models) để phân tích cảm xúc từ phản hồi khách hàng trên nền tảng thương mại điện tử, thuộc lĩnh vực trí tuệ nhân tạo (AI) và xử lý ngôn ngữ tự nhiên (NLP), không có liên quan đến y sinh (y học) hay các lĩnh vực khoa học sinh học.
+
+Giải thích: Trong toàn bộ ngữ cảnh cung cấp, không có bất kỳ tài liệu nào đề cập đến lĩnh vực y sinh, y học, hoặc các nghiên cứu liên quan đến sức khỏe, sinh học, hoặc lĩnh vực y khoa. Các đề tài nghiên cứu được mô tả trong [1], [2], [3], [4], [5] đều tập trung vào công nghệ thông tin, AI, xử lý ngôn ngữ tự nhiên, hệ thống phân loại tài liệu, và hình ảnh máy tính, hoàn toàn khác biệt với lĩnh vực y sinh. Do đó, khẳng định ""đề tài nghiên cứu này thuộc lĩnh vực Y sinh"" là không chính xác.",0.3333333333333333,1.0,1.0,0,0.0,0.0,1.0,0.14285714285714285,7,32.69,bieu_mau_co_bang,kiem_chung
+Cách nấu phở bò ngon nhất là gì?,Không tìm thấy thông tin trong tài liệu.,0.0,0.0,1.0,0,0.0,0.0,0.0,,0,16.43,ngoai_pham_vi,tu_choi
+What is the best recipe for chocolate cake?,The documents do not contain this information.,0.0,0.0,0.0,0,0.0,0.0,0.0,,0,6.25,ngoai_pham_vi,tu_choi
+Giá vàng SJC hôm nay bao nhiêu một lượng?,"Giá vàng SJC hôm nay không được cung cấp trong ngữ cảnh đã cho. Các tài liệu trong ngữ cảnh này đều liên quan đến lĩnh vực máy học (machine learning), xử lý hình ảnh (HOG), không gian màu (YCbCr) và kết quả mô hình phân loại, không có thông tin về giá vàng SJC hoặc dữ liệu tài chính. Do đó, câu hỏi này không thể trả lời dựa trên ngữ cảnh đã cung cấp.",0.0,0.0,1.0,0,0.0,0.0,1.0,0.0,0,27.73,ngoai_pham_vi,tu_choi
+Who won the 2022 FIFA World Cup?,The documents do not contain this information.,0.0,0.0,1.0,0,0.0,0.0,0.0,,0,26.77,ngoai_pham_vi,tu_choi

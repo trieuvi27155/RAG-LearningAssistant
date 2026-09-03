@@ -1,0 +1,10 @@
+{
+  "embedding_model": "intfloat/multilingual-e5-base",
+  "chunk_size_tokens": 160,
+  "chunk_overlap_tokens": 32,
+  "nhan_dien_tieu_de": true,
+  "trich_anh": true,
+  "chu_thich_anh_vision": true,
+  "so_chunk": 9285,
+  "thoi_diem_build": "2026-09-03 13:44:58"
+}

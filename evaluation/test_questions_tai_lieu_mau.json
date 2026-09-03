@@ -1,0 +1,219 @@
+[
+  {
+    "cau_hoi": "Thư viện số đầu tiên được xây dựng vào năm nào?",
+    "cac_trang_dung": [{"nguon": "dai_nhieu_chu.docx", "trang": 1}],
+    "dap_an_mau": "Năm 1971, với mục tiêu số hoá các tác phẩm đã hết hạn bản quyền.",
+    "loai_tai_lieu": "dai",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Thư viện được phân thành mấy nhóm chính và là những nhóm nào?",
+    "cac_trang_dung": [{"nguon": "dai_nhieu_chu.docx", "trang": 1}],
+    "dap_an_mau": "Bốn nhóm: thư viện công cộng, chuyên ngành, trường học và quốc gia.",
+    "loai_tai_lieu": "dai",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Người đặt trước có bao nhiêu ngày để đến nhận tài liệu kể từ khi nhận thông báo?",
+    "cac_trang_dung": [{"nguon": "dai_nhieu_chu.docx", "trang": 2}],
+    "dap_an_mau": "Ba ngày; quá hạn thì lượt ưu tiên chuyển cho người kế tiếp.",
+    "loai_tai_lieu": "dai",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Vì sao không được dùng băng dính thông thường khi phục chế tài liệu?",
+    "cac_trang_dung": [{"nguon": "dai_nhieu_chu.docx", "trang": 3}],
+    "dap_an_mau": "Vì lớp keo của băng dính ngả vàng và ăn mòn giấy sau vài năm.",
+    "loai_tai_lieu": "dai",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Tài liệu không phát sinh lượt mượn trong bao lâu thì bị đưa vào danh sách rà soát thanh lý?",
+    "cac_trang_dung": [{"nguon": "dai_nhieu_chu.docx", "trang": 4}],
+    "dap_an_mau": "Hai năm.",
+    "loai_tai_lieu": "dai",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Thư viện theo dõi những chỉ số chính nào?",
+    "cac_trang_dung": [{"nguon": "dai_nhieu_chu.docx", "trang": 4}],
+    "dap_an_mau": "Tổng lượt mượn, số thẻ hoạt động, tỉ lệ trả đúng hạn, thời gian chờ trung bình của hàng đợi đặt trước.",
+    "loai_tai_lieu": "dai",
+    "loai_cau_hoi": "truy_xuat"
+  },
+
+  {
+    "cau_hoi": "Hệ thống quản lý thư viện phục vụ những đối tượng sử dụng nào?",
+    "cac_trang_dung": [{"nguon": "ngan_thua_chu.pptx", "trang": 3}],
+    "dap_an_mau": "Người đọc, thủ thư và quản trị hệ thống.",
+    "loai_tai_lieu": "ngan",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Phí phạt quá hạn được miễn trong bao nhiêu ngày đầu?",
+    "cac_trang_dung": [{"nguon": "ngan_thua_chu.pptx", "trang": 5}],
+    "dap_an_mau": "Miễn phạt 3 ngày đầu.",
+    "loai_tai_lieu": "ngan",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Số hoá tài liệu gồm những bước nào?",
+    "cac_trang_dung": [{"nguon": "ngan_thua_chu.pptx", "trang": 7}],
+    "dap_an_mau": "Quét ở độ phân giải cao và nhận dạng ký tự quang học.",
+    "loai_tai_lieu": "ngan",
+    "loai_cau_hoi": "truy_xuat"
+  },
+
+  {
+    "cau_hoi": "Phí phạt mỗi ngày đối với tạp chí đóng tập là bao nhiêu?",
+    "cac_trang_dung": [
+      {"nguon": "hon_hop.pdf", "trang": 2},
+      {"nguon": "bang_anh_nhom.pptx", "trang": 1},
+      {"nguon": "co_bang_anh.docx", "trang": 1}
+    ],
+    "dap_an_mau": "5.000 đồng mỗi ngày.",
+    "loai_tai_lieu": "co_bang",
+    "loai_cau_hoi": "da_phuong_thuc"
+  },
+  {
+    "cau_hoi": "Những loại tài liệu nào không được gia hạn?",
+    "cac_trang_dung": [
+      {"nguon": "hon_hop.pdf", "trang": 2},
+      {"nguon": "bang_anh_nhom.pptx", "trang": 1},
+      {"nguon": "co_bang_anh.docx", "trang": 1}
+    ],
+    "dap_an_mau": "Tạp chí đóng tập và tài liệu quý hiếm.",
+    "loai_tai_lieu": "co_bang",
+    "loai_cau_hoi": "da_phuong_thuc"
+  },
+  {
+    "cau_hoi": "Sách tham khảo được mượn trong bao lâu và gia hạn được mấy lần?",
+    "cac_trang_dung": [
+      {"nguon": "hon_hop.pdf", "trang": 2},
+      {"nguon": "bang_anh_nhom.pptx", "trang": 1},
+      {"nguon": "co_bang_anh.docx", "trang": 1}
+    ],
+    "dap_an_mau": "14 ngày, gia hạn 1 lần.",
+    "loai_tai_lieu": "co_bang",
+    "loai_cau_hoi": "da_phuong_thuc"
+  },
+  {
+    "cau_hoi": "Vai trò nào được sửa dữ liệu nhưng không được mượn tài liệu?",
+    "cac_trang_dung": [{"nguon": "co_bang_anh.docx", "trang": 1}],
+    "dap_an_mau": "Quản trị hệ thống: có quyền xem và sửa dữ liệu nhưng không mượn tài liệu.",
+    "loai_tai_lieu": "co_bang",
+    "loai_cau_hoi": "da_phuong_thuc"
+  },
+
+  {
+    "cau_hoi": "Sơ đồ quy trình mượn tài liệu gồm những bước nào?",
+    "cac_trang_dung": [
+      {"nguon": "bang_anh_nhom.pptx", "trang": 3},
+      {"nguon": "co_bang_anh.docx", "trang": 1}
+    ],
+    "dap_an_mau": "Quét thẻ, kiểm tra nợ, ghi mượn, hẹn ngày trả.",
+    "loai_tai_lieu": "co_anh",
+    "loai_cau_hoi": "da_phuong_thuc"
+  },
+  {
+    "cau_hoi": "Biểu đồ lượt mượn theo năm cho thấy xu hướng gì?",
+    "cac_trang_dung": [
+      {"nguon": "bang_anh_nhom.pptx", "trang": 2},
+      {"nguon": "hon_hop.pdf", "trang": 3}
+    ],
+    "dap_an_mau": "Lượt mượn tài liệu tăng dần qua các năm.",
+    "loai_tai_lieu": "co_anh",
+    "loai_cau_hoi": "da_phuong_thuc"
+  },
+
+  {
+    "cau_hoi": "Tôi nhớ là mỗi thẻ được mượn tối đa 10 tài liệu cùng lúc, phải không?",
+    "cac_trang_dung": [
+      {"nguon": "dai_nhieu_chu.docx", "trang": 2},
+      {"nguon": "ngan_thua_chu.pptx", "trang": 4}
+    ],
+    "dap_an_mau": "Sai. Tài liệu ghi mỗi thẻ được mượn tối đa năm tài liệu cùng lúc.",
+    "loai_tai_lieu": "dai",
+    "loai_cau_hoi": "kiem_chung"
+  },
+  {
+    "cau_hoi": "Có phải tài liệu quý hiếm chỉ được đọc tại chỗ, không cho mượn mang về không?",
+    "cac_trang_dung": [
+      {"nguon": "hon_hop.pdf", "trang": 1},
+      {"nguon": "hon_hop.pdf", "trang": 2}
+    ],
+    "dap_an_mau": "Đúng. Tài liệu quý hiếm chỉ được đọc tại chỗ và không cho mượn mang về.",
+    "loai_tai_lieu": "co_bang",
+    "loai_cau_hoi": "kiem_chung"
+  },
+  {
+    "cau_hoi": "Theo tôi thì kho lưu trữ lâu dài nên có nhiều cửa sổ để thoáng khí, đúng chứ?",
+    "cac_trang_dung": [
+      {"nguon": "dai_nhieu_chu.docx", "trang": 3},
+      {"nguon": "hon_hop.pdf", "trang": 1}
+    ],
+    "dap_an_mau": "Sai. Ánh sáng trực tiếp làm giấy ố vàng nên khu lưu trữ lâu dài thường không có cửa sổ.",
+    "loai_tai_lieu": "dai",
+    "loai_cau_hoi": "kiem_chung"
+  },
+  {
+    "cau_hoi": "Tài liệu có nói thư viện số ra đời trước thư viện truyền thống đúng không?",
+    "cac_trang_dung": [{"nguon": "dai_nhieu_chu.docx", "trang": 1}],
+    "dap_an_mau": "Sai. Tài liệu mô tả thư viện số ra đời năm 1971 và so sánh nó với thư viện truyền thống vốn có trước.",
+    "loai_tai_lieu": "dai",
+    "loai_cau_hoi": "kiem_chung"
+  },
+
+  {
+    "cau_hoi": "Hồ sơ loại D1 phải xử lý xong trong bao nhiêu ngày làm việc?",
+    "cac_trang_dung": [{"nguon": "nhieu_muc_tuong_tu.docx", "trang": 7}],
+    "dap_an_mau": "15 ngày làm việc kể từ ngày nhận đủ giấy tờ hợp lệ.",
+    "loai_tai_lieu": "nhieu_muc_tuong_tu",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Mức phí xử lý hồ sơ loại G2 là bao nhiêu?",
+    "cac_trang_dung": [{"nguon": "nhieu_muc_tuong_tu.docx", "trang": 14}],
+    "dap_an_mau": "Xem mức phí ghi tại điều quy định hồ sơ loại G2.",
+    "loai_tai_lieu": "nhieu_muc_tuong_tu",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Hồ sơ loại M2 được tiếp nhận tại phòng nào?",
+    "cac_trang_dung": [{"nguon": "nhieu_muc_tuong_tu.docx", "trang": 20}],
+    "dap_an_mau": "Xem tên phòng ghi tại điều quy định hồ sơ loại M2.",
+    "loai_tai_lieu": "nhieu_muc_tuong_tu",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Hồ sơ loại B1 được đăng ký tối đa bao nhiêu bản sao mỗi lượt nộp?",
+    "cac_trang_dung": [{"nguon": "nhieu_muc_tuong_tu.docx", "trang": 3}],
+    "dap_an_mau": "Xem số bản sao ghi tại điều quy định hồ sơ loại B1.",
+    "loai_tai_lieu": "nhieu_muc_tuong_tu",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Công thức tính diện tích hình tròn là gì?",
+    "cac_trang_dung": [],
+    "dap_an_mau": "Không tìm thấy thông tin trong tài liệu.",
+    "loai_tai_lieu": "dai",
+    "loai_cau_hoi": "tu_choi"
+  },
+  {
+    "cau_hoi": "Giá vé máy bay từ Hà Nội đi Đà Nẵng hiện nay là bao nhiêu?",
+    "cac_trang_dung": [],
+    "dap_an_mau": "Không tìm thấy thông tin trong tài liệu.",
+    "loai_tai_lieu": "dai",
+    "loai_cau_hoi": "tu_choi"
+  },
+  {
+    "cau_hoi": "What is the maximum number of items a library card can borrow at once?",
+    "cac_trang_dung": [
+      {"nguon": "dai_nhieu_chu.docx", "trang": 2},
+      {"nguon": "ngan_thua_chu.pptx", "trang": 4}
+    ],
+    "dap_an_mau": "Five items at a time, for twenty-one days.",
+    "loai_tai_lieu": "dai",
+    "loai_cau_hoi": "truy_xuat"
+  }
+]

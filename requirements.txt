@@ -1,0 +1,22 @@
+streamlit>=1.32
+pdfplumber>=0.11
+python-pptx>=0.6.23
+python-docx>=1.1
+langchain-text-splitters>=0.2
+sentence-transformers>=2.7
+faiss-cpu>=1.8
+ollama>=0.2
+# httpx vốn là dependency của ollama, nhưng rag/rag_pipeline.py bắt httpx.ConnectError một
+# cách TƯỜNG MINH (đường streaming của ollama không bọc lỗi kết nối lại) nên nó là
+# dependency trực tiếp, phải khai báo ở đây thay vì trông vào cây phụ thuộc của gói khác.
+httpx>=0.27
+tiktoken>=0.7
+langdetect>=1.0.9
+numpy>=1.26
+
+# --- Chỉ cần cho phát triển/đánh giá, không cần để chạy ứng dụng ---
+pytest>=8.0
+# Sinh bộ tài liệu mẫu đa dạng để đo (evaluation/tao_tai_lieu_mau.py). Pillow còn là
+# dependency gián tiếp sẵn có của pdfplumber/python-pptx nên hầu như luôn có sẵn.
+reportlab>=4.0
+Pillow>=10.0

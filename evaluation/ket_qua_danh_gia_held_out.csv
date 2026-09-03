@@ -1,0 +1,128 @@
+﻿cau_hoi,cau_tra_loi,precision_at_k,recall_at_k,faithfulness,faithfulness_dang_ngo,faithfulness_dao_dong,faithfulness_bam_ngu_canh,answer_relevance,citation_accuracy,so_cap_trich_dan_da_kiem,do_tre_giay,loai_tai_lieu,loai_cau_hoi
+What are Haar-like features and how are they computed?,"1. Haar-like features are simple digital image features that were introduced in a real-time face detector [2].
+2. They come into different types: edge features, line features and four-rectangle features [1].
+3. Each feature is a single value obtained by subtracting sum of pixels under the white rectangle from sum of pixels under the black rectangle [3].
+4. Haar features are just rectangle sum like our convolutional kernel [1].
+5. These features can be efficiently computed on any scale in constant time, using an integral image [2].",0.75,1.0,1.0,0,0.0,0.875,1.0,1.0,5,25.17,slide_tieng_anh,truy_xuat
+How many bins does the HOG histogram use for each 8x8 cell?,The HOG histogram uses 9 bins for each 8×8 cell [2].,0.5,1.0,1.0,0,0.0,0.125,1.0,1.0,1,46.15,slide_tieng_anh,truy_xuat
+What classifier is used together with HOG features for pedestrian detection?,"Linear SVM is used together with HOG features for pedestrian detection [1], [2], [4].",0.25,0.5,1.0,0,0.0,0.0,1.0,1.0,3,27.93,slide_tieng_anh,truy_xuat
+Các bước tính đặc trưng HOG gồm những bước nào?,"1. Tiền xử lý [1]  
+2. Tính toán ảnh độ dốc [1]  
+3. Tính histogram độ dốc trong các ô 8x8 [1]  
+4. Chuẩn hóa khối 16x16 [1]  
+5. Tính vector đặc trưng HOG [1]",0.25,1.0,1.0,0,0.0,0.0,1.0,1.0,5,41.31,slide_tieng_anh,cheo_ngon_ngu
+Ảnh tích phân (integral image) được định nghĩa như thế nào?,"1. Ảnh tích phân (integral image) được định nghĩa là tổng của các pixel nằm phía trên và bên trái điểm (j, j) trong ảnh, với công thức $ I(j, j) = \sum_{u=0}^{j-1} \sum_{v=0}^{j-1} X(u, v) $ theo [1] và [2].",0.5,1.0,1.0,0,0.0,0.0,1.0,1.0,2,50.48,slide_tieng_anh,cheo_ngon_ngu
+Kích thước ảnh dùng cho bài toán phát hiện người đi bộ là bao nhiêu?,Kích thước ảnh dùng cho bài toán phát hiện người đi bộ là 64 x 128 theo [1] và [2].,0.5,1.0,1.0,0,0.0,0.0,1.0,0.75,2,41.49,slide_tieng_anh,cheo_ngon_ngu
+Ý tưởng cốt lõi của Fully Convolutional Networks là gì?,1. Thay thế fully connected layer bằng convolution layer [1].,0.25,1.0,1.0,0,0.0,0.833,1.0,1.0,1,25.63,dai_tieng_viet,truy_xuat
+FCN-8s đạt Mean IU bao nhiêu trên tập PASCAL VOC?,FCN-8s đạt Mean IU là 62.7 trên tập PASCAL VOC theo [1].,0.25,1.0,1.0,0,0.0,0.0,1.0,0.5,1,43.01,dai_tieng_viet,doc_bang
+Thời gian suy luận của FCN-8s so với SDS là bao nhiêu?,"Thời gian suy luận của FCN-8s là ~175ms, trong khi SDS là ~50s theo [1].",0.25,1.0,1.0,0,0.0,0.0,1.0,1.0,1,37.58,dai_tieng_viet,doc_bang
+FCN-16s kết hợp những feature map nào với nhau?,"1. FCN-16s kết hợp conv7 output [1, 2].  
+2. FCN-16s kết hợp pool4 feature map [1, 2].",0.5,1.0,1.0,0,0.0,0.167,1.0,0.875,4,85.2,dai_tieng_viet,truy_xuat
+Giá trị momentum dùng khi huấn luyện FCN là bao nhiêu?,Giá trị momentum dùng khi huấn luyện FCN là 0.9 theo [1].,0.5,1.0,1.0,0,0.0,0.0,1.0,1.0,1,30.51,dai_tieng_viet,truy_xuat
+Những hạn chế của FCN là gì?,"Những hạn chế của FCN là:
+
+1. Spatial information bị mất theo [3].  
+2. Boundary không sắc nét theo [3].  
+3. Object nhỏ khó segment theo [3].",0.25,1.0,1.0,0,0.0,0.0,1.0,0.8333333333333334,3,114.85,dai_tieng_viet,truy_xuat
+Deconvolution layer trong FCN được khởi tạo bằng cách nào?,Deconvolution layer trong FCN được khởi tạo bằng bilinear interpolation [1].,0.25,1.0,1.0,0,0.0,0.375,1.0,1.0,1,32.92,dai_tieng_viet,truy_xuat
+Có phải FCN-32s cho kết quả phân đoạn tốt nhất trong ba biến thể không?,"Căn cứ: theo [3]: ""FCN-8s đạt kết quả tốt nhất. [...] [BẢNG] | Model | Mean IU | [...] | FCN-32s | 59.4 | | FCN-16s | 62.4 | | FCN-8s | 62.7 |""
+
+Đối chiếu: Khẳng định của người dùng cho rằng ""FCN-32s cho kết quả phân đoạn tốt nhất trong ba biến thể"". Tài liệu trích dẫn cho thấy: FCN-32s có Mean IU = 59.4, FCN-16s có 62.4, FCN-8s có 62.7. Do đó, FCN-8s có kết quả tốt nhất (cao nhất), không phải FCN-32s. Tài liệu cũng khẳng định trực tiếp ""FCN-8s đạt kết quả tốt nhất"" (trong phần Kết quả trên PASCAL VOC).
+
+KẾT LUẬN: SAI",0.25,1.0,1.0,0,0.0,0.0,1.0,1.0,1,36.82,dai_tieng_viet,kiem_chung
+MQTT là giao thức gì và hoạt động theo mô hình nào?,"1. MQTT là giao thức truyền thông điệp Message Queuing Telemetry Transport [1].  
+2. MQTT hoạt động theo mô hình publish/subscribe [1,3,4].",0.25,0.5,1.0,0,0.0,0.25,1.0,1.0,4,43.72,slide_tieng_viet,truy_xuat
+"Trong Adafruit IO, kênh dữ liệu được gọi là gì?","Trong Adafruit IO, kênh dữ liệu được gọi là Feed [1].",0.25,1.0,1.0,0,0.0,0.875,1.0,1.0,1,32.84,slide_tieng_viet,truy_xuat
+Kiến trúc phân lớp của một hệ thống IoT gồm những tầng nào?,"1. Tầng thiết bị (Sensors & Actuators) [1, 2]  
+2. Tầng truyền thông (Communication Network) [1]  
+3. Tầng nền tảng (Platform) [3]  
+4. Tầng ứng dụng (Applications) [3]",0.25,0.3333333333333333,1.0,0,0.0,0.0,1.0,0.4,5,53.78,slide_tieng_viet,truy_xuat
+Nhược điểm của mô hình Publish/Subscribe là gì?,"1. Sự bất ổn khi mở rộng quy mô nhanh chóng, dẫn đến quá tải băng thông mạng và hiện tượng chậm mạng [1].  
+2. Việc điều chỉnh tỷ lệ động có thể không cần thiết [1].  
+3. Mô hình Pub/Sub có thể quá phức tạp đối với các hoạt động quy mô nhỏ, khi đó phương pháp thăm dò (polling) có thể phù hợp hơn [1].",0.25,0.5,1.0,0,0.0,0.4,1.0,0.16666666666666666,3,44.62,slide_tieng_viet,truy_xuat
+Tại sao SCADA không phù hợp hoàn toàn với IoT hiện đại?,"SCADA không phù hợp hoàn toàn với IoT hiện đại vì:
+1. Thiết bị theo tiêu chuẩn rất cụ thể [1].
+2. Phạm vi nhà sản xuất hạn chế [1].
+3. Kiến trúc đóng [1].
+4. Thiếu cơ chế bảo mật [1].
+5. Thiếu đảm bảo tính bảo mật dữ liệu [1].",0.5,1.0,1.0,0,0.0,0.8,1.0,1.0,5,36.31,slide_tieng_viet,truy_xuat
+Đề tài Intelligent Document Categorization System được xây dựng nhằm mục đích gì?,"Đề tài Intelligent Document Categorization System được xây dựng nhằm:
+
+1. Phát triển một hệ thống phân loại tài liệu thông minh có khả năng tự động phân tích nội dung và sắp xếp tài liệu vào các nhóm phù hợp bằng cách ứng dụng các kỹ thuật Trí tuệ nhân tạo (AI), Xử lý ngôn ngữ tự nhiên (NLP) và Học máy (Machine Learning) [1].
+2. Nâng cao hiệu quả quản lý thông tin, tối ưu hóa quá trình lưu trữ và tìm kiếm tài liệu, đồng thời hỗ trợ quá trình chuyển đổi số trong môi trường hiện đại [1].
+3. Xây dựng hệ thống có khả năng tự động phân loại tài liệu dựa trên nội dung văn bản [2].
+4. Ứng dụng AI, NLP và Machine Learning để nâng cao độ chính xác trong quá trình xử lý dữ liệu [2].
+5. Giảm thời gian, chi phí và hạn chế sai sót khi phân loại tài liệu thủ công [2].
+6. Hỗ trợ quản lý, lưu trữ và tìm kiếm tài liệu nhanh chóng, hiệu quả hơn [2].",0.75,1.0,1.0,0,0.0,0.875,1.0,0.8333333333333334,6,74.98,dai_tieng_viet,truy_xuat
+Thuộc tính định danh (nominal attribute) là gì và vấn đề của nó khi tính toán?,"Thuộc tính định danh (nominal attribute) là những thuộc tính dùng các tên gọi để diễn tả giá trị (ví dụ: màu sắc, dân tộc, tôn giáo) [1].
+
+Vấn đề khi tính toán:
+1. Các giá trị trung bình, median không có ý nghĩa do thuộc tính định danh không thể được biểu diễn dưới dạng số có ý nghĩa [1].
+2. Việc chuyển đổi giá trị thuộc tính định danh sang dạng số không giữ nguyên ý nghĩa của các giá trị [1].
+3. Khó khăn trong việc đo khoảng cách (độ tương tự/khác biệt) giữa các đối tượng dữ liệu khi sử dụng thuộc tính định danh [1, 2].",0.5,1.0,1.0,0,0.0,0.316,1.0,1.0,5,66.0,bai_giang_docx,truy_xuat
+Thuộc tính nhị phân symmetric khác asymmetric ở điểm nào?,"1. Thuộc tính nhị phân symmetric có ý nghĩa và tầm quan trọng của 2 giá trị ngang nhau, trong khi thuộc tính nhị phân asymmetric có ý nghĩa và tầm quan trọng của 2 giá trị khác nhau [1].",0.25,1.0,1.0,0,0.0,0.556,1.0,0.5,1,40.25,bai_giang_docx,truy_xuat
+Có những độ đo khoảng cách nào được dùng cho thuộc tính số?,"1. Khoảng cách Euclid [1,2]  
+2. Khoảng cách Manhattan [1,2]  
+3. Khoảng cách Minkowski [1,2]  
+4. Khoảng cách Chebyshev [1,2]",0.25,1.0,1.0,0,0.0,0.0,1.0,0.5,8,46.09,bai_giang_docx,truy_xuat
+"Độ tương tự sim(i,j) được tính từ độ khác biệt d(i,j) như thế nào?","Độ tương tự sim(i,j) được tính bằng công thức: sim(i,j) = 1 – d(i,j) theo [1].",0.25,1.0,1.0,0,0.5,0.235,1.0,1.0,1,16.48,bai_giang_docx,truy_xuat
+What kind of data is cosine similarity used for in this lecture?,The documents do not contain this information.,0.0,0.0,1.0,0,0.0,0.0,1.0,,0,20.14,bai_giang_docx,cheo_ngon_ngu
+Dữ liệu dùng cho khai phá dữ liệu cần đạt những tiêu chí chất lượng nào?,Không tìm thấy thông tin trong tài liệu.,0.0,0.0,1.0,0,0.0,0.0,0.0,,0,24.21,bai_giang_docx,truy_xuat
+Tích hợp dữ liệu (data integration) phải giải quyết những vấn đề gì?,"Tích hợp dữ liệu (data integration) phải giải quyết những vấn đề sau:
+
+1. Nhận dạng thực thể (entity identification problem) [1]
+2. Tích hợp lược đồ (schema integration) [1]
+3. So khớp đối tượng (object matching) [1]
+4. Dư thừa (redundancy) [1]
+5. Tuple Duplication (các bộ lặp lại) [1]
+6. Mâu thuẫn giá trị dữ liệu (data value conflicts) [1]
+7. Dư thừa thông tin [2]
+8. Mâu thuẫn [2]",0.25,1.0,1.0,0,0.5,0.3,1.0,1.0,8,62.41,bai_giang_docx,truy_xuat
+Thuật toán K-Means gồm những bước nào?,"1. Chọn số cụm k và k điểm làm centroid ban đầu [1].  
+2. Gán các điểm vào nhóm dựa trên khoảng cách [1, 3].  
+3. Tính lại vị trí centroid của từng nhóm [1, 3].  
+4. Lặp lại bước 2 và 3 cho đến khi tọa độ các centroid không thay đổi [1, 2].",0.25,1.0,1.0,0,0.0,0.0,1.0,0.5714285714285714,7,43.48,bai_giang_docx,truy_xuat
+Single link và complete link khác nhau như thế nào trong gom cụm phân cấp?,"1. Single link là khỏang cách nhỏ nhất giữa 2 điểm nằm trong 2 cụm, phù hợp với cụm dạng chuỗi, được tính bằng công thức d(Ci,Cj) = min d(xi, xj) với mọi xi thuộc Ci và mọi xj thuộc Cj [1].  
+2. Complete link là khỏang cách xa nhất giữa 2 điểm nằm trong 2 cụm, phù hợp với cụm dạng khối, được tính bằng công thức d(Ci,Cj) = max d(xi, xj) với mọi xi thuộc Ci và mọi xj thuộc Cj [1].",0.5,1.0,1.0,0,0.0,0.525,1.0,1.0,2,65.21,bai_giang_docx,truy_xuat
+"Khi triển khai gom cụm phân cấp trong thực tế, có thể dừng theo tiêu chuẩn nào?","1. Giải thuật dừng khi số lượng cụm đạt tới một giá trị qui định trước [1].  
+2. Dừng khi một cụm mới được tạo ra không thỏa tiêu chuẩn định trước [1].",0.25,1.0,1.0,0,0.0,0.917,1.0,1.0,2,20.29,bai_giang_docx,truy_xuat
+Một item set có k phần tử có thể sinh ra bao nhiêu luật kết hợp?,Một item set có k phần tử có thể sinh ra 2k - 2 luật kết hợp theo [1].,0.25,1.0,1.0,0,0.0,0.067,1.0,0.0,1,79.84,bai_giang_docx,truy_xuat
+Định lý về việc chuyển một item từ vế trái sang vế phải của luật kết hợp nói gì?,Định lý này khẳng định rằng khi chuyển 1 item từ vế trái sang vế phải của 1 luật thì độ tin cậy của luật mới không tăng lên [1].,0.25,1.0,1.0,0,0.0,0.519,1.0,1.0,1,31.62,bai_giang_docx,truy_xuat
+Thuật toán KNN phân lớp một phần tử mới như thế nào?,"Thuật toán KNN phân lớp một phần tử mới bằng cách:
+
+1. Tìm k phần tử trong bộ dữ liệu huấn luyện (training data set) ""gần nhất"" với phần tử cần dự đoán [2].
+2. Căn cứ vào lớp chiếm đa số của k phần tử này để dự báo lớp của phần tử mới [2].",1.0,1.0,1.0,0,0.0,0.0,1.0,1.0,2,36.61,bai_giang_docx,truy_xuat
+Entropy ban đầu của bộ dữ liệu Lens24 bằng bao nhiêu?,Entropy ban đầu của bộ dữ liệu Lens24 bằng 1.3261 bits theo [1] và [2].,0.5,1.0,1.0,0,0.0,0.0,1.0,1.0,2,44.64,bai_giang_docx,truy_xuat
+"Trong ví dụ Lens24, thuộc tính nào có Information Gain lớn nhất?","Trong ví dụ Lens24, thuộc tính Tears có Information Gain lớn nhất với giá trị 0.5488 bits theo [1] và [2].",0.5,1.0,1.0,0,0.0,0.053,1.0,0.25,2,53.93,bai_giang_docx,truy_xuat
+Có phải thuộc tính Age có Information Gain lớn nhất trong ví dụ Lens24 không?,"Căn cứ: theo [2]: ""Tổng kết EStart = 1.3261 EAge= 1.2867  Information Gain=1.3261-1.2867=0.0394 bits; ESpecRx= 1.2866  Information Gain=1.3261-1.2866=0.0393 bits; EAstig = 0.9491  Information Gain=1.3261-0.9491=0.377 bits; ETears= 0.7773  Information Gain=1.3261-0.7773=0.5488 bits""
+
+Đối chiếu: Khẳng định của người dùng là ""thuộc tính Age có Information Gain lớn nhất"". Từ tài liệu, Information Gain của Age là 0.0394 bits, của SpecRx là 0.0393 bits, của Astig là 0.377 bits, của Tears là 0.5488 bits. Chi tiết mâu thuẫn: tài liệu chỉ ra rằng thuộc tính Tears có Information Gain lớn nhất (0.5488 bits), không phải Age. Do đó, khẳng định của người dùng không khớp với tài liệu.
+
+KẾT LUẬN: SAI",0.5,1.0,1.0,0,1.0,0.0,1.0,1.0,1,25.45,bai_giang_docx,kiem_chung
+Chỉ số GINI ban đầu (GStart) của bộ dữ liệu bằng bao nhiêu?,Chỉ số GINI ban đầu (GStart) của bộ dữ liệu là 0.5382 theo [1] và [2].,0.5,1.0,1.0,0,0.0,0.071,1.0,0.5,2,45.42,bai_giang_docx,truy_xuat
+What three tools does the PaperQA agent use?,"1. The search tool [1, 2].
+2. The gather evidence tool [1, 2].
+3. The answer question tool [1, 2].",0.25,1.0,0.0,0,0.0,0.0,1.0,0.5833333333333334,6,54.25,bai_bao_tieng_anh,truy_xuat
+What are the key innovations of PaperQA compared to a standard RAG?,"PaperQA has three key innovations compared to standard RAG, as described in the context:
+
+1. Decomposing parts of a RAG and providing them as tools to an agent, which allows operations like search to be performed multiple times with different keywords if the evidence collected is insufficient [1].
+2. Using a map summarization step to gather evidence from multiple sources followed by a reduce step to answer, which increases the amount of sources that can be considered and provides a scratchpad where the LLM can give intermediate evidence before formulating the final answer [1].
+3. Utilizing the LLM's ability to reason over text and provide numerical relevance scores for each chunk of text to the query question, in addition to the commonly used vector-embedding distances [1].
+
+The context mentions there are four key innovations but does not fully describe the fourth one.",0.25,1.0,1.0,0,0.0,0.0,1.0,0.5,3,67.86,bai_bao_tieng_anh,truy_xuat
+"In the LitQA evaluation table, what accuracy did Human and GPT-4 achieve?","According to [2], in the LitQA evaluation table:
+
+1. Human achieved 66.8% accuracy (Correct) [2].
+2. GPT-4 achieved 33.4% accuracy (Correct) [2].",0.5,1.0,1.0,0,0.0,0.0,1.0,0.6666666666666666,3,17.66,bai_bao_tieng_anh,doc_bang
+RQ-RAG có thể tinh chỉnh truy vấn theo những cách nào?,"RQ-RAG có thể tinh chỉnh truy vấn theo các cách sau:
+
+1. Viết lại truy vấn [1,2,3,4]
+2. Phân tích truy vấn [1,2,3,4]
+3. Giải quyết mờ ám [1,2,3,4]",0.25,1.0,1.0,0,1.0,0.0,1.0,0.5,12,57.58,bai_bao_tieng_anh,cheo_ngon_ngu
+What three trajectory selection methods does RQ-RAG use?,"1. Selection based on perplexity (PPL) [1]
+2. Selection based on confidence [1]
+3. An ensemble approach [1]",0.25,1.0,1.0,0,0.0,0.0,1.0,1.0,3,16.37,bai_bao_tieng_anh,truy_xuat
+RQ-RAG vượt LLama2-7B Zero Shot trung bình bao nhiêu phần trăm ở tác vụ single-hop QA?,RQ-RAG vượt LLama2-7B Zero Shot trung bình 33.5% ở tác vụ single-hop QA theo [1].,0.5,1.0,1.0,0,0.0,0.062,1.0,0.5,1,46.19,bai_bao_tieng_anh,cheo_ngon_ngu
+"On multi-hop QA, what average score does RQ-RAG achieve compared to GPT-4 with Chain-of-Thought?","RQ-RAG achieves an average score of 49.7 on multi-hop QA tasks, while GPT-4 with Chain-of-Thought achieves an average score of 63.9 according to [1].",0.5,1.0,1.0,0,0.0,0.071,1.0,0.5,1,63.36,bai_bao_tieng_anh,doc_bang
+Cách nấu phở bò truyền thống gồm những bước nào?,Không tìm thấy thông tin trong tài liệu.,0.0,0.0,1.0,0,0.0,0.0,0.0,,0,19.6,ngoai_pham_vi,tu_choi
+Đội tuyển nào vô địch World Cup 2022?,Không tìm thấy thông tin trong tài liệu.,0.0,0.0,1.0,0,0.0,0.0,1.0,,0,29.15,ngoai_pham_vi,tu_choi

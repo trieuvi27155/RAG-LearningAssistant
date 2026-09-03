@@ -1,0 +1,580 @@
+[
+  {
+    "cau_hoi": "What are Haar-like features and how are they computed?",
+    "cac_trang_dung": [
+      {
+        "nguon": "CV-05-Classification.pdf",
+        "trang": 5
+      },
+      {
+        "nguon": "CV-05-Classification.pdf",
+        "trang": 6
+      }
+    ],
+    "dap_an_mau": "Haar-like feature là đặc trưng ảnh số đơn giản; mỗi đặc trưng là một giá trị lấy tổng pixel vùng trắng trừ tổng pixel vùng đen, tính được ở mọi tỷ lệ trong thời gian hằng số nhờ ảnh tích phân.",
+    "loai_tai_lieu": "slide_tieng_anh",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "How many bins does the HOG histogram use for each 8x8 cell?",
+    "cac_trang_dung": [
+      {
+        "nguon": "CV-05-Classification.pdf",
+        "trang": 28
+      }
+    ],
+    "dap_an_mau": "9 bin, ứng với các góc 0, 20, 40, 60... độ.",
+    "loai_tai_lieu": "slide_tieng_anh",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "What classifier is used together with HOG features for pedestrian detection?",
+    "cac_trang_dung": [
+      {
+        "nguon": "CV-05-Classification.pdf",
+        "trang": 34
+      },
+      {
+        "nguon": "CV-05-Classification.pdf",
+        "trang": 37
+      }
+    ],
+    "dap_an_mau": "Linear SVM.",
+    "loai_tai_lieu": "slide_tieng_anh",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Các bước tính đặc trưng HOG gồm những bước nào?",
+    "cac_trang_dung": [
+      {
+        "nguon": "CV-05-Classification.pdf",
+        "trang": 24
+      }
+    ],
+    "dap_an_mau": "Tiền xử lý; tính ảnh gradient; tính histogram gradient trong ô 8x8; chuẩn hoá khối 16x16; tạo vector đặc trưng HOG.",
+    "loai_tai_lieu": "slide_tieng_anh",
+    "loai_cau_hoi": "cheo_ngon_ngu"
+  },
+  {
+    "cau_hoi": "Ảnh tích phân (integral image) được định nghĩa như thế nào?",
+    "cac_trang_dung": [
+      {
+        "nguon": "CV-05-Classification.pdf",
+        "trang": 9
+      },
+      {
+        "nguon": "CV-05-Classification.pdf",
+        "trang": 10
+      }
+    ],
+    "dap_an_mau": "Là tổng các pixel nằm phía trên và bên trái của điểm đang xét, cho phép tính tổng một hình chữ nhật chỉ bằng vài phép cộng.",
+    "loai_tai_lieu": "slide_tieng_anh",
+    "loai_cau_hoi": "cheo_ngon_ngu"
+  },
+  {
+    "cau_hoi": "Kích thước ảnh dùng cho bài toán phát hiện người đi bộ là bao nhiêu?",
+    "cac_trang_dung": [
+      {
+        "nguon": "CV-05-Classification.pdf",
+        "trang": 25
+      }
+    ],
+    "dap_an_mau": "64 x 128 (tỷ lệ rộng trên cao là 1:2).",
+    "loai_tai_lieu": "slide_tieng_anh",
+    "loai_cau_hoi": "cheo_ngon_ngu"
+  },
+  {
+    "cau_hoi": "Ý tưởng cốt lõi của Fully Convolutional Networks là gì?",
+    "cac_trang_dung": [
+      {
+        "nguon": "BAO_CAO_MAY_HOC.docx",
+        "trang": 4
+      }
+    ],
+    "dap_an_mau": "Thay thế fully connected layer bằng convolution layer, nhờ đó mạng nhận được input kích thước bất kỳ và cho ra feature map để dự đoán dense.",
+    "loai_tai_lieu": "dai_tieng_viet",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "FCN-8s đạt Mean IU bao nhiêu trên tập PASCAL VOC?",
+    "cac_trang_dung": [
+      {
+        "nguon": "BAO_CAO_MAY_HOC.docx",
+        "trang": 11
+      }
+    ],
+    "dap_an_mau": "62.7 (FCN-32s đạt 59.4 và FCN-16s đạt 62.4).",
+    "loai_tai_lieu": "dai_tieng_viet",
+    "loai_cau_hoi": "doc_bang"
+  },
+  {
+    "cau_hoi": "Thời gian suy luận của FCN-8s so với SDS là bao nhiêu?",
+    "cac_trang_dung": [
+      {
+        "nguon": "BAO_CAO_MAY_HOC.docx",
+        "trang": 11
+      }
+    ],
+    "dap_an_mau": "FCN-8s khoảng 175ms, SDS khoảng 50 giây.",
+    "loai_tai_lieu": "dai_tieng_viet",
+    "loai_cau_hoi": "doc_bang"
+  },
+  {
+    "cau_hoi": "FCN-16s kết hợp những feature map nào với nhau?",
+    "cac_trang_dung": [
+      {
+        "nguon": "BAO_CAO_MAY_HOC.docx",
+        "trang": 6
+      },
+      {
+        "nguon": "BAO_CAO_MAY_HOC.docx",
+        "trang": 7
+      }
+    ],
+    "dap_an_mau": "Kết hợp output của conv7 với feature map của pool4.",
+    "loai_tai_lieu": "dai_tieng_viet",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Giá trị momentum dùng khi huấn luyện FCN là bao nhiêu?",
+    "cac_trang_dung": [
+      {
+        "nguon": "BAO_CAO_MAY_HOC.docx",
+        "trang": 8
+      }
+    ],
+    "dap_an_mau": "0.9 (SGD with momentum).",
+    "loai_tai_lieu": "dai_tieng_viet",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Những hạn chế của FCN là gì?",
+    "cac_trang_dung": [
+      {
+        "nguon": "BAO_CAO_MAY_HOC.docx",
+        "trang": 12
+      }
+    ],
+    "dap_an_mau": "Output còn coarse, boundary chưa sắc nét; chưa modeling context mạnh (không có attention); object nhỏ khó segment.",
+    "loai_tai_lieu": "dai_tieng_viet",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Deconvolution layer trong FCN được khởi tạo bằng cách nào?",
+    "cac_trang_dung": [
+      {
+        "nguon": "BAO_CAO_MAY_HOC.docx",
+        "trang": 5
+      }
+    ],
+    "dap_an_mau": "Khởi tạo bằng nội suy song tuyến (bilinear interpolation).",
+    "loai_tai_lieu": "dai_tieng_viet",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Có phải FCN-32s cho kết quả phân đoạn tốt nhất trong ba biến thể không?",
+    "cac_trang_dung": [
+      {
+        "nguon": "BAO_CAO_MAY_HOC.docx",
+        "trang": 11
+      }
+    ],
+    "dap_an_mau": "Không. FCN-8s mới là biến thể tốt nhất (Mean IU 62.7 so với 59.4 của FCN-32s).",
+    "loai_tai_lieu": "dai_tieng_viet",
+    "loai_cau_hoi": "kiem_chung"
+  },
+  {
+    "cau_hoi": "MQTT là giao thức gì và hoạt động theo mô hình nào?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Chapter 2. Server kết nối vạn vật.pptx",
+        "trang": 80
+      },
+      {
+        "nguon": "Chapter 2. Server kết nối vạn vật.pptx",
+        "trang": 81
+      }
+    ],
+    "dap_an_mau": "MQTT (Message Queuing Telemetry Transport) là giao thức truyền thông điệp nhẹ theo mô hình publish/subscribe, chạy trên nền TCP/IP, có ba mức QoS.",
+    "loai_tai_lieu": "slide_tieng_viet",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Trong Adafruit IO, kênh dữ liệu được gọi là gì?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Chapter 2. Server kết nối vạn vật.pptx",
+        "trang": 59
+      }
+    ],
+    "dap_an_mau": "Feed - đơn vị lưu trữ và truyền dữ liệu giữa thiết bị và dashboard qua MQTT/REST.",
+    "loai_tai_lieu": "slide_tieng_viet",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Kiến trúc phân lớp của một hệ thống IoT gồm những tầng nào?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Chapter 2. Server kết nối vạn vật.pptx",
+        "trang": 13
+      },
+      {
+        "nguon": "Chapter 2. Server kết nối vạn vật.pptx",
+        "trang": 15
+      },
+      {
+        "nguon": "Chapter 2. Server kết nối vạn vật.pptx",
+        "trang": 16
+      }
+    ],
+    "dap_an_mau": "Tầng thiết bị (cảm biến và cơ cấu chấp hành), tầng truyền thông, IoT Gateway, nền tảng IoT, cùng lớp bảo mật và lớp quản lý vận hành xuyên suốt.",
+    "loai_tai_lieu": "slide_tieng_viet",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Nhược điểm của mô hình Publish/Subscribe là gì?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Chapter 2. Server kết nối vạn vật.pptx",
+        "trang": 48
+      },
+      {
+        "nguon": "Chapter 2. Server kết nối vạn vật.pptx",
+        "trang": 49
+      }
+    ],
+    "dap_an_mau": "Gửi tin nhắn thất bại do bên gửi và bên nhận tách rời không biết nhau; và sự bất ổn khi mở rộng quy mô nhanh, dễ quá tải băng thông.",
+    "loai_tai_lieu": "slide_tieng_viet",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Tại sao SCADA không phù hợp hoàn toàn với IoT hiện đại?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Chapter 2. Server kết nối vạn vật.pptx",
+        "trang": 6
+      },
+      {
+        "nguon": "Chapter 2. Server kết nối vạn vật.pptx",
+        "trang": 7
+      }
+    ],
+    "dap_an_mau": "Vì thiết bị theo tiêu chuẩn rất cụ thể, phạm vi nhà sản xuất hạn chế, kiến trúc đóng - trong khi IoT đòi hỏi kiến trúc mở, có khả năng tương tác và bảo mật.",
+    "loai_tai_lieu": "slide_tieng_viet",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Đề tài Intelligent Document Categorization System được xây dựng nhằm mục đích gì?",
+    "cac_trang_dung": [
+      {
+        "nguon": "baocaonangcaothayAn.docx",
+        "trang": 3
+      }
+    ],
+    "dap_an_mau": "Phát triển hệ thống phân loại tài liệu thông minh, tự động phân tích nội dung và sắp xếp tài liệu vào nhóm phù hợp bằng AI, NLP và Machine Learning.",
+    "loai_tai_lieu": "dai_tieng_viet",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Thuộc tính định danh (nominal attribute) là gì và vấn đề của nó khi tính toán?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Bai1-TongQuanDuLieu.docx",
+        "trang": 3
+      }
+    ],
+    "dap_an_mau": "Là thuộc tính dùng tên gọi để diễn tả giá trị (màu sắc, dân tộc, tôn giáo). Có thể chuyển sang dạng số nhưng ý nghĩa giá trị không còn, nên trung bình và median vô nghĩa - chỉ quan tâm giá trị mode, và khó đo khoảng cách giữa hai đối tượng.",
+    "loai_tai_lieu": "bai_giang_docx",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Thuộc tính nhị phân symmetric khác asymmetric ở điểm nào?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Bai1-TongQuanDuLieu.docx",
+        "trang": 3
+      }
+    ],
+    "dap_an_mau": "Symmetric: ý nghĩa và tầm quan trọng của 2 giá trị ngang nhau (ví dụ giới tính Nam/Nữ). Asymmetric: 2 giá trị khác nhau về tầm quan trọng (ví dụ xét nghiệm HIV dương tính/âm tính). Cách tính khoảng cách của hai loại khác nhau.",
+    "loai_tai_lieu": "bai_giang_docx",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Có những độ đo khoảng cách nào được dùng cho thuộc tính số?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Bai1-TongQuanDuLieu.docx",
+        "trang": 4
+      }
+    ],
+    "dap_an_mau": "Khoảng cách Euclide, Manhattan, Minkowski, và Chebyshev (tổng quát hóa của Minkowski khi h tiến tới vô cùng).",
+    "loai_tai_lieu": "bai_giang_docx",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Độ tương tự sim(i,j) được tính từ độ khác biệt d(i,j) như thế nào?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Bai1-TongQuanDuLieu.docx",
+        "trang": 4
+      }
+    ],
+    "dap_an_mau": "sim(i,j) = 1 - d(i,j). Ma trận khác biệt là ma trận đối xứng với các giá trị >= 0, d(i,j) = d(j,i) và d(i,i) = 0.",
+    "loai_tai_lieu": "bai_giang_docx",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "What kind of data is cosine similarity used for in this lecture?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Bai1-TongQuanDuLieu.docx",
+        "trang": 6
+      }
+    ],
+    "dap_an_mau": "Dùng cho văn bản/tài liệu biểu diễn bằng term-frequency vector (số lần xuất hiện từ khoá) - loại vector nhiều chiều, thưa và không đối xứng.",
+    "loai_tai_lieu": "bai_giang_docx",
+    "loai_cau_hoi": "cheo_ngon_ngu"
+  },
+  {
+    "cau_hoi": "Dữ liệu dùng cho khai phá dữ liệu cần đạt những tiêu chí chất lượng nào?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Bai2-ChuanBiDuLieu.docx",
+        "trang": 1
+      }
+    ],
+    "dap_an_mau": "Chính xác (accuracy), hiện hành (currency/timeliness), toàn vẹn (completeness) và nhất quán (consistency).",
+    "loai_tai_lieu": "bai_giang_docx",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Tích hợp dữ liệu (data integration) phải giải quyết những vấn đề gì?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Bai2-ChuanBiDuLieu.docx",
+        "trang": 2
+      }
+    ],
+    "dap_an_mau": "Nhận dạng thực thể (tích hợp lược đồ, so khớp đối tượng), dư thừa (redundancy), các bộ lặp lại (tuple duplication) và mâu thuẫn giá trị dữ liệu.",
+    "loai_tai_lieu": "bai_giang_docx",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Thuật toán K-Means gồm những bước nào?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Bai3-GomCum.docx",
+        "trang": 2
+      }
+    ],
+    "dap_an_mau": "Chọn số nguyên k; chọn k điểm làm centroid ban đầu; dựa vào khoảng cách gán các điểm còn lại vào từng nhóm; tính lại vị trí centroid; lặp lại cho đến khi toạ độ các centroid không còn thay đổi.",
+    "loai_tai_lieu": "bai_giang_docx",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Single link và complete link khác nhau như thế nào trong gom cụm phân cấp?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Bai3-GomCum.docx",
+        "trang": 4
+      }
+    ],
+    "dap_an_mau": "Single link lấy khoảng cách NHỎ NHẤT giữa 2 điểm thuộc 2 cụm, phù hợp cụm dạng chuỗi. Complete link lấy khoảng cách XA NHẤT, phù hợp cụm dạng khối.",
+    "loai_tai_lieu": "bai_giang_docx",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Khi triển khai gom cụm phân cấp trong thực tế, có thể dừng theo tiêu chuẩn nào?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Bai3-GomCum.docx",
+        "trang": 4
+      }
+    ],
+    "dap_an_mau": "Không nhất thiết trộn tới khi còn 1 cụm duy nhất: có thể dừng khi số lượng cụm đạt một giá trị quy định trước, hoặc khi cụm mới tạo ra không thoả tiêu chuẩn định trước.",
+    "loai_tai_lieu": "bai_giang_docx",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Một item set có k phần tử có thể sinh ra bao nhiêu luật kết hợp?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Bai4-LuatKetHop.docx",
+        "trang": 3
+      }
+    ],
+    "dap_an_mau": "Xấp xỉ 2^k - 2 luật. Với k = 10 phải tạo và kiểm tra 1022 luật; với k = 20 là 1.048.574 luật - bất khả thi nên cần phương pháp giảm thiểu.",
+    "loai_tai_lieu": "bai_giang_docx",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Định lý về việc chuyển một item từ vế trái sang vế phải của luật kết hợp nói gì?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Bai4-LuatKetHop.docx",
+        "trang": 3
+      }
+    ],
+    "dap_an_mau": "Chuyển 1 item từ vế trái sang vế phải thì KHÔNG làm tăng độ tin cậy của luật mới. Hệ quả: nếu L→R thoả minConf thì mọi tập con của R cũng thoả; nếu không thoả thì mọi tập chứa R cũng không thoả.",
+    "loai_tai_lieu": "bai_giang_docx",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Thuật toán KNN phân lớp một phần tử mới như thế nào?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Bai5-PhanLopVoiKNN-NaiveBayes.docx",
+        "trang": 1
+      }
+    ],
+    "dap_an_mau": "Tìm k phần tử trong tập huấn luyện gần nhất với phần tử cần dự đoán, rồi căn cứ vào lớp chiếm đa số trong k phần tử đó để dự báo lớp cho phần tử mới.",
+    "loai_tai_lieu": "bai_giang_docx",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Entropy ban đầu của bộ dữ liệu Lens24 bằng bao nhiêu?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Bai6-CayQuyetDinh.docx",
+        "trang": 2
+      }
+    ],
+    "dap_an_mau": "EStart = 1,3261 bits, tính từ 3 lớp có 4, 5 và 15 phần tử trên tổng 24 phần tử.",
+    "loai_tai_lieu": "bai_giang_docx",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Trong ví dụ Lens24, thuộc tính nào có Information Gain lớn nhất?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Bai6-CayQuyetDinh.docx",
+        "trang": 2
+      }
+    ],
+    "dap_an_mau": "Thuộc tính Tears: ETears = 0,7773 bits nên Information Gain = 1,3261 - 0,7773 = 0,5488 bits, lớn nhất trong bốn thuộc tính.",
+    "loai_tai_lieu": "bai_giang_docx",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Có phải thuộc tính Age có Information Gain lớn nhất trong ví dụ Lens24 không?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Bai6-CayQuyetDinh.docx",
+        "trang": 2
+      }
+    ],
+    "dap_an_mau": "Không. Age chỉ đạt Information Gain 0,0394 bits - thấp nhất. Thuộc tính có Information Gain lớn nhất là Tears với 0,5488 bits.",
+    "loai_tai_lieu": "bai_giang_docx",
+    "loai_cau_hoi": "kiem_chung"
+  },
+  {
+    "cau_hoi": "Chỉ số GINI ban đầu (GStart) của bộ dữ liệu bằng bao nhiêu?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Bai6-CayQuyetDinh.docx",
+        "trang": 4
+      }
+    ],
+    "dap_an_mau": "GStart = 1 - ((4/24)^2 + (5/24)^2 + (15/24)^2) = 0,5382.",
+    "loai_tai_lieu": "bai_giang_docx",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "What three tools does the PaperQA agent use?",
+    "cac_trang_dung": [
+      {
+        "nguon": "PaperQA.pdf",
+        "trang": 3
+      }
+    ],
+    "dap_an_mau": "Search, gather evidence, and answer question.",
+    "loai_tai_lieu": "bai_bao_tieng_anh",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "What are the key innovations of PaperQA compared to a standard RAG?",
+    "cac_trang_dung": [
+      {
+        "nguon": "PaperQA.pdf",
+        "trang": 4
+      }
+    ],
+    "dap_an_mau": "Bốn cải tiến: tách các phần của RAG thành công cụ cho một agent (cho phép tìm kiếm nhiều lần với từ khoá khác nhau); dùng bước map summarization để gom bằng chứng từ nhiều nguồn rồi reduce để trả lời; cùng các cải tiến còn lại được mô tả trong mục 3.1.",
+    "loai_tai_lieu": "bai_bao_tieng_anh",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "In the LitQA evaluation table, what accuracy did Human and GPT-4 achieve?",
+    "cac_trang_dung": [
+      {
+        "nguon": "PaperQA.pdf",
+        "trang": 7
+      }
+    ],
+    "dap_an_mau": "Human đạt Accuracy 66,8% (Precision 87,9%); GPT-4 đạt Accuracy 33,4% (Precision 50,6%).",
+    "loai_tai_lieu": "bai_bao_tieng_anh",
+    "loai_cau_hoi": "doc_bang"
+  },
+  {
+    "cau_hoi": "RQ-RAG có thể tinh chỉnh truy vấn theo những cách nào?",
+    "cac_trang_dung": [
+      {
+        "nguon": "RFRAG.pdf",
+        "trang": 3
+      }
+    ],
+    "dap_an_mau": "Dùng các control token để rewrite (viết lại), decompose (phân rã), disambiguate (khử nhập nhằng) truy vấn, hoặc dừng tìm kiếm để sinh câu trả lời.",
+    "loai_tai_lieu": "bai_bao_tieng_anh",
+    "loai_cau_hoi": "cheo_ngon_ngu"
+  },
+  {
+    "cau_hoi": "What three trajectory selection methods does RQ-RAG use?",
+    "cac_trang_dung": [
+      {
+        "nguon": "RFRAG.pdf",
+        "trang": 3
+      }
+    ],
+    "dap_an_mau": "Chọn theo perplexity (PPL), theo confidence, và phương pháp ensemble - cả ba đều không cần LLM bên ngoài để đánh giá trajectory.",
+    "loai_tai_lieu": "bai_bao_tieng_anh",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "RQ-RAG vượt LLama2-7B Zero Shot trung bình bao nhiêu phần trăm ở tác vụ single-hop QA?",
+    "cac_trang_dung": [
+      {
+        "nguon": "RFRAG.pdf",
+        "trang": 6
+      }
+    ],
+    "dap_an_mau": "Trung bình 33,5% trong điều kiện có retrieval. Ngoài ra RQ-RAG vượt SAIL-7B 20,3%.",
+    "loai_tai_lieu": "bai_bao_tieng_anh",
+    "loai_cau_hoi": "cheo_ngon_ngu"
+  },
+  {
+    "cau_hoi": "On multi-hop QA, what average score does RQ-RAG achieve compared to GPT-4 with Chain-of-Thought?",
+    "cac_trang_dung": [
+      {
+        "nguon": "RFRAG.pdf",
+        "trang": 7
+      }
+    ],
+    "dap_an_mau": "RQ-RAG đạt trung bình 49,7 (HotpotQA 62,6 - 2Wiki 44,8 - MuSiQue 41,7), còn GPT-4 kèm Chain-of-Thought đạt 63,9.",
+    "loai_tai_lieu": "bai_bao_tieng_anh",
+    "loai_cau_hoi": "doc_bang"
+  },
+  {
+    "cau_hoi": "Cách nấu phở bò truyền thống gồm những bước nào?",
+    "cac_trang_dung": [],
+    "dap_an_mau": "Không tìm thấy thông tin trong tài liệu.",
+    "loai_tai_lieu": "ngoai_pham_vi",
+    "loai_cau_hoi": "tu_choi"
+  },
+  {
+    "cau_hoi": "Đội tuyển nào vô địch World Cup 2022?",
+    "cac_trang_dung": [],
+    "dap_an_mau": "Không tìm thấy thông tin trong tài liệu.",
+    "loai_tai_lieu": "ngoai_pham_vi",
+    "loai_cau_hoi": "tu_choi"
+  }
+]

@@ -1,0 +1,13 @@
+# Bảng màu theo lối các ứng dụng chat quen thuộc (ChatGPT/Claude): nền trắng cho vùng đọc,
+# xám rất nhạt cho thanh bên, chữ gần đen. Giữ xanh dương làm màu nhấn - đây vẫn là công cụ
+# học tập có trích dẫn, không phải bản sao giao diện của ai, và màu nhấn là chỗ duy nhất
+# người dùng cần phân biệt "bấm được" với "chỉ để đọc".
+#
+# Dùng cơ chế theme chính thức của Streamlit thay vì nhúng CSS thô - ổn định hơn giữa các
+# phiên bản Streamlit, áp dụng nhất quán cho mọi widget (nút, checkbox, ô nhập...).
+[theme]
+primaryColor = "#1a73e8"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f7f7f8"
+textColor = "#1f1f1f"
+font = "sans serif"

@@ -1,0 +1,514 @@
+[
+  {
+    "cau_hoi": "What is the bias-variance decomposition?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Bishop-Pattern-Recognition-and-Machine-Learning-2006.pdf",
+        "trang": 167
+      },
+      {
+        "nguon": "Bishop-Pattern-Recognition-and-Machine-Learning-2006.pdf",
+        "trang": 169
+      },
+      {
+        "nguon": "Bishop-Pattern-Recognition-and-Machine-Learning-2006.pdf",
+        "trang": 172
+      }
+    ],
+    "dap_an_mau": "Phân rã sai số kỳ vọng thành thành phần bias (độ chệch) và variance (phương sai).",
+    "loai_tai_lieu": "dai_tieng_anh",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "What is the Kullback-Leibler divergence?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Bishop-Pattern-Recognition-and-Machine-Learning-2006.pdf",
+        "trang": 75
+      },
+      {
+        "nguon": "Bishop-Pattern-Recognition-and-Machine-Learning-2006.pdf",
+        "trang": 84
+      }
+    ],
+    "dap_an_mau": "Còn gọi là relative entropy, đo mức chênh lệch giữa hai phân phối xác suất.",
+    "loai_tai_lieu": "dai_tieng_anh",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "What is a mixture of Gaussians?",
+    "cac_trang_dung": [
+      {
+        "nguon": "Bishop-Pattern-Recognition-and-Machine-Learning-2006.pdf",
+        "trang": 131
+      }
+    ],
+    "dap_an_mau": "Chồng chập K phân phối Gauss, xấp xỉ được mọi mật độ liên tục với độ chính xác tuỳ ý.",
+    "loai_tai_lieu": "dai_tieng_anh",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "What is the pinhole camera model?",
+    "cac_trang_dung": [
+      {
+        "nguon": "CV-02-Camera.pdf",
+        "trang": 4
+      },
+      {
+        "nguon": "CV-02-Camera.pdf",
+        "trang": 5
+      },
+      {
+        "nguon": "CV-02-Camera.pdf",
+        "trang": 8
+      },
+      {
+        "nguon": "CV-02-Camera.pdf",
+        "trang": 34
+      },
+      {
+        "nguon": "CV-02-Camera.pdf",
+        "trang": 54
+      }
+    ],
+    "dap_an_mau": "Mô hình toán học đơn giản nhất của camera, áp dụng được cho nhiều loại ảnh thực tế.",
+    "loai_tai_lieu": "slide_tieng_anh",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "How does the SIFT descriptor work?",
+    "cac_trang_dung": [
+      {
+        "nguon": "CV-04-RecognitionLocalFeatures.pdf",
+        "trang": 6
+      },
+      {
+        "nguon": "CV-04-RecognitionLocalFeatures.pdf",
+        "trang": 7
+      },
+      {
+        "nguon": "CV-04-RecognitionLocalFeatures.pdf",
+        "trang": 23
+      }
+    ],
+    "dap_an_mau": "SIFT phát hiện và trích xuất đặc trưng cục bộ bất biến với tỉ lệ, dùng cho khớp ảnh và nhận dạng.",
+    "loai_tai_lieu": "slide_tieng_anh",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "What is RANSAC used for?",
+    "cac_trang_dung": [
+      {
+        "nguon": "CV-04-RecognitionLocalFeatures.pdf",
+        "trang": 30
+      },
+      {
+        "nguon": "CV-04-RecognitionLocalFeatures.pdf",
+        "trang": 31
+      },
+      {
+        "nguon": "CV-04-RecognitionLocalFeatures.pdf",
+        "trang": 32
+      },
+      {
+        "nguon": "CV-04-RecognitionLocalFeatures.pdf",
+        "trang": 34
+      }
+    ],
+    "dap_an_mau": "Dùng để giải hệ phương trình và ước lượng tham số của phép biến đổi affine.",
+    "loai_tai_lieu": "slide_tieng_anh",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "What is the Lucas-Kanade algorithm?",
+    "cac_trang_dung": [
+      {
+        "nguon": "CV-06-MotionOpticalFlow.pdf",
+        "trang": 15
+      },
+      {
+        "nguon": "CV-06-MotionOpticalFlow.pdf",
+        "trang": 18
+      },
+      {
+        "nguon": "CV-06-MotionOpticalFlow.pdf",
+        "trang": 20
+      },
+      {
+        "nguon": "CV-06-MotionOpticalFlow.pdf",
+        "trang": 34
+      }
+    ],
+    "dap_an_mau": "Một thuật toán tính optical flow, nêu trong phần Optical Flow của bài giảng.",
+    "loai_tai_lieu": "slide_tieng_anh",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "What is the brightness constancy constraint equation?",
+    "cac_trang_dung": [
+      {
+        "nguon": "CV-06-MotionOpticalFlow.pdf",
+        "trang": 13
+      },
+      {
+        "nguon": "CV-06-MotionOpticalFlow.pdf",
+        "trang": 26
+      }
+    ],
+    "dap_an_mau": "Ràng buộc giả định độ sáng của một điểm không đổi khi nó dịch chuyển giữa hai khung hình.",
+    "loai_tai_lieu": "slide_tieng_anh",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Nhà nước có những đặc điểm gì?",
+    "cac_trang_dung": [
+      {
+        "nguon": "[NguyenphuongLaw] Giáo trình Pháp luật Đại cương.pdf",
+        "trang": 12
+      },
+      {
+        "nguon": "[NguyenphuongLaw] Giáo trình Pháp luật Đại cương.pdf",
+        "trang": 13
+      },
+      {
+        "nguon": "[NguyenphuongLaw] Giáo trình Pháp luật Đại cương.pdf",
+        "trang": 14
+      }
+    ],
+    "dap_an_mau": "Nhà nước có năm đặc điểm, là nét điển hình phân biệt nhà nước với các tổ chức khác.",
+    "loai_tai_lieu": "dai_tieng_viet",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Vi phạm pháp luật gồm những dấu hiệu nào?",
+    "cac_trang_dung": [
+      {
+        "nguon": "[NguyenphuongLaw] Giáo trình Pháp luật Đại cương.pdf",
+        "trang": 105
+      },
+      {
+        "nguon": "[NguyenphuongLaw] Giáo trình Pháp luật Đại cương.pdf",
+        "trang": 106
+      },
+      {
+        "nguon": "[NguyenphuongLaw] Giáo trình Pháp luật Đại cương.pdf",
+        "trang": 109
+      }
+    ],
+    "dap_an_mau": "Hành vi trái pháp luật, có lỗi, do chủ thể có năng lực trách nhiệm pháp lý thực hiện.",
+    "loai_tai_lieu": "dai_tieng_viet",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Trách nhiệm pháp lý được truy cứu khi nào?",
+    "cac_trang_dung": [
+      {
+        "nguon": "[NguyenphuongLaw] Giáo trình Pháp luật Đại cương.pdf",
+        "trang": 115
+      },
+      {
+        "nguon": "[NguyenphuongLaw] Giáo trình Pháp luật Đại cương.pdf",
+        "trang": 116
+      }
+    ],
+    "dap_an_mau": "Khi có vi phạm pháp luật xảy ra, cơ quan nhà nước có thẩm quyền có quyền truy cứu.",
+    "loai_tai_lieu": "dai_tieng_viet",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Bản chất giai cấp của nhà nước thể hiện qua những dấu hiệu nào?",
+    "cac_trang_dung": [
+      {
+        "nguon": "[NguyenphuongLaw] Giáo trình Pháp luật Đại cương.pdf",
+        "trang": 12
+      },
+      {
+        "nguon": "[NguyenphuongLaw] Giáo trình Pháp luật Đại cương.pdf",
+        "trang": 19
+      }
+    ],
+    "dap_an_mau": "Qua những dấu hiệu cơ bản, đặc thù thể hiện bản chất giai cấp và điều kiện tồn tại của nhà nước.",
+    "loai_tai_lieu": "dai_tieng_viet",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Đối tượng điều chỉnh của luật hình sự là gì?",
+    "cac_trang_dung": [
+      {
+        "nguon": "NHÓM 6 - LUẬT HÌNH SỰ.pptx",
+        "trang": 4
+      },
+      {
+        "nguon": "NHÓM 6 - LUẬT HÌNH SỰ.pptx",
+        "trang": 6
+      },
+      {
+        "nguon": "[NguyenphuongLaw] Giáo trình Pháp luật Đại cương.pdf",
+        "trang": 150
+      },
+      {
+        "nguon": "[NguyenphuongLaw] Giáo trình Pháp luật Đại cương.pdf",
+        "trang": 152
+      }
+    ],
+    "dap_an_mau": "Quan hệ giữa Nhà nước và người hoặc pháp nhân thương mại phạm tội.",
+    "loai_tai_lieu": "slide_tieng_viet",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Luật hình sự có những nội dung khái quát chung nào?",
+    "cac_trang_dung": [
+      {
+        "nguon": "NHÓM 6 - LUẬT HÌNH SỰ.pptx",
+        "trang": 4
+      },
+      {
+        "nguon": "NHÓM 6 - LUẬT HÌNH SỰ.pptx",
+        "trang": 5
+      },
+      {
+        "nguon": "[NguyenphuongLaw] Giáo trình Pháp luật Đại cương.pdf",
+        "trang": 149
+      },
+      {
+        "nguon": "[NguyenphuongLaw] Giáo trình Pháp luật Đại cương.pdf",
+        "trang": 150
+      },
+      {
+        "nguon": "[NguyenphuongLaw] Giáo trình Pháp luật Đại cương.pdf",
+        "trang": 158
+      }
+    ],
+    "dap_an_mau": "Khái niệm luật hình sự, đối tượng điều chỉnh và phương pháp điều chỉnh.",
+    "loai_tai_lieu": "slide_tieng_viet",
+    "loai_cau_hoi": "truy_xuat"
+  },
+  {
+    "cau_hoi": "Tên đề tài nghiên cứu khoa học là gì?",
+    "cac_trang_dung": [
+      {
+        "nguon": "DeCuongNCKH.docx",
+        "trang": 1
+      }
+    ],
+    "dap_an_mau": "Ứng dụng mô hình ngôn ngữ lớn (LLMs) trong phân tích cảm xúc bình luận sản phẩm trên nền tảng thương mại điện tử.",
+    "loai_tai_lieu": "bieu_mau_co_bang",
+    "loai_cau_hoi": "doc_bang"
+  },
+  {
+    "cau_hoi": "Chủ nhiệm đề tài tên gì và mã số sinh viên bao nhiêu?",
+    "cac_trang_dung": [
+      {
+        "nguon": "DeCuongNCKH.docx",
+        "trang": 1
+      }
+    ],
+    "dap_an_mau": "Đổ Tiến Đạt, mã số sinh viên 2351010039.",
+    "loai_tai_lieu": "bieu_mau_co_bang",
+    "loai_cau_hoi": "doc_bang"
+  },
+  {
+    "cau_hoi": "Đề tài thuộc lĩnh vực nào?",
+    "cac_trang_dung": [
+      {
+        "nguon": "DeCuongNCKH.docx",
+        "trang": 1
+      }
+    ],
+    "dap_an_mau": "Khoa học máy tính.",
+    "loai_tai_lieu": "bieu_mau_co_bang",
+    "loai_cau_hoi": "doc_bang"
+  },
+  {
+    "cau_hoi": "Mô hình camera lỗ kim hoạt động ra sao?",
+    "cac_trang_dung": [
+      {
+        "nguon": "CV-02-Camera.pdf",
+        "trang": 4
+      },
+      {
+        "nguon": "CV-02-Camera.pdf",
+        "trang": 5
+      },
+      {
+        "nguon": "CV-02-Camera.pdf",
+        "trang": 8
+      },
+      {
+        "nguon": "CV-02-Camera.pdf",
+        "trang": 34
+      },
+      {
+        "nguon": "CV-02-Camera.pdf",
+        "trang": 54
+      }
+    ],
+    "dap_an_mau": "Mô hình toán học đơn giản nhất của camera, áp dụng cho nhiều loại ảnh thực tế.",
+    "loai_tai_lieu": "slide_tieng_anh",
+    "loai_cau_hoi": "cheo_ngon_ngu"
+  },
+  {
+    "cau_hoi": "Luồng quang học (optical flow) được dùng để làm gì?",
+    "cac_trang_dung": [
+      {
+        "nguon": "CV-06-MotionOpticalFlow.pdf",
+        "trang": 3
+      },
+      {
+        "nguon": "CV-06-MotionOpticalFlow.pdf",
+        "trang": 6
+      },
+      {
+        "nguon": "CV-06-MotionOpticalFlow.pdf",
+        "trang": 9
+      },
+      {
+        "nguon": "CV-06-MotionOpticalFlow.pdf",
+        "trang": 14
+      },
+      {
+        "nguon": "CV-06-MotionOpticalFlow.pdf",
+        "trang": 27
+      }
+    ],
+    "dap_an_mau": "Dùng để ước lượng chuyển động giữa các khung hình.",
+    "loai_tai_lieu": "slide_tieng_anh",
+    "loai_cau_hoi": "cheo_ngon_ngu"
+  },
+  {
+    "cau_hoi": "Đặc trưng cục bộ SIFT là gì?",
+    "cac_trang_dung": [
+      {
+        "nguon": "CV-04-RecognitionLocalFeatures.pdf",
+        "trang": 6
+      },
+      {
+        "nguon": "CV-04-RecognitionLocalFeatures.pdf",
+        "trang": 7
+      },
+      {
+        "nguon": "CV-04-RecognitionLocalFeatures.pdf",
+        "trang": 23
+      }
+    ],
+    "dap_an_mau": "Phương pháp phát hiện và trích xuất đặc trưng cục bộ bất biến với tỉ lệ.",
+    "loai_tai_lieu": "slide_tieng_anh",
+    "loai_cau_hoi": "cheo_ngon_ngu"
+  },
+  {
+    "cau_hoi": "What are the characteristics of the state?",
+    "cac_trang_dung": [
+      {
+        "nguon": "[NguyenphuongLaw] Giáo trình Pháp luật Đại cương.pdf",
+        "trang": 12
+      },
+      {
+        "nguon": "[NguyenphuongLaw] Giáo trình Pháp luật Đại cương.pdf",
+        "trang": 13
+      },
+      {
+        "nguon": "[NguyenphuongLaw] Giáo trình Pháp luật Đại cương.pdf",
+        "trang": 14
+      }
+    ],
+    "dap_an_mau": "Nhà nước có năm đặc điểm phân biệt nó với các tổ chức khác.",
+    "loai_tai_lieu": "dai_tieng_viet",
+    "loai_cau_hoi": "cheo_ngon_ngu"
+  },
+  {
+    "cau_hoi": "What does criminal law regulate?",
+    "cac_trang_dung": [
+      {
+        "nguon": "NHÓM 6 - LUẬT HÌNH SỰ.pptx",
+        "trang": 5
+      },
+      {
+        "nguon": "NHÓM 6 - LUẬT HÌNH SỰ.pptx",
+        "trang": 6
+      },
+      {
+        "nguon": "[NguyenphuongLaw] Giáo trình Pháp luật Đại cương.pdf",
+        "trang": 150
+      }
+    ],
+    "dap_an_mau": "Quan hệ giữa Nhà nước và người hoặc pháp nhân thương mại phạm tội.",
+    "loai_tai_lieu": "slide_tieng_viet",
+    "loai_cau_hoi": "cheo_ngon_ngu"
+  },
+  {
+    "cau_hoi": "Tôi nhớ là nhà nước chỉ có 2 đặc điểm thôi, phải không?",
+    "cac_trang_dung": [
+      {
+        "nguon": "[NguyenphuongLaw] Giáo trình Pháp luật Đại cương.pdf",
+        "trang": 12
+      },
+      {
+        "nguon": "[NguyenphuongLaw] Giáo trình Pháp luật Đại cương.pdf",
+        "trang": 13
+      },
+      {
+        "nguon": "[NguyenphuongLaw] Giáo trình Pháp luật Đại cương.pdf",
+        "trang": 14
+      }
+    ],
+    "dap_an_mau": "Sai. Tài liệu nêu nhà nước có NĂM đặc điểm, không phải hai.",
+    "loai_tai_lieu": "dai_tieng_viet",
+    "loai_cau_hoi": "kiem_chung"
+  },
+  {
+    "cau_hoi": "Có phải đối tượng điều chỉnh của luật hình sự là quan hệ giữa hai công dân với nhau không?",
+    "cac_trang_dung": [
+      {
+        "nguon": "NHÓM 6 - LUẬT HÌNH SỰ.pptx",
+        "trang": 6
+      },
+      {
+        "nguon": "NHÓM 6 - LUẬT HÌNH SỰ.pptx",
+        "trang": 7
+      }
+    ],
+    "dap_an_mau": "Sai. Là quan hệ giữa Nhà nước và người/pháp nhân thương mại phạm tội, không phải giữa hai công dân.",
+    "loai_tai_lieu": "slide_tieng_viet",
+    "loai_cau_hoi": "kiem_chung"
+  },
+  {
+    "cau_hoi": "Theo tôi thì đề tài nghiên cứu này thuộc lĩnh vực Y sinh, đúng không?",
+    "cac_trang_dung": [
+      {
+        "nguon": "DeCuongNCKH.docx",
+        "trang": 1
+      }
+    ],
+    "dap_an_mau": "Sai. Đề tài thuộc lĩnh vực Khoa học máy tính.",
+    "loai_tai_lieu": "bieu_mau_co_bang",
+    "loai_cau_hoi": "kiem_chung"
+  },
+  {
+    "cau_hoi": "Cách nấu phở bò ngon nhất là gì?",
+    "cac_trang_dung": [],
+    "dap_an_mau": "Không tìm thấy thông tin trong tài liệu.",
+    "loai_tai_lieu": "ngoai_pham_vi",
+    "loai_cau_hoi": "tu_choi"
+  },
+  {
+    "cau_hoi": "What is the best recipe for chocolate cake?",
+    "cac_trang_dung": [],
+    "dap_an_mau": "The documents do not contain this information.",
+    "loai_tai_lieu": "ngoai_pham_vi",
+    "loai_cau_hoi": "tu_choi"
+  },
+  {
+    "cau_hoi": "Giá vàng SJC hôm nay bao nhiêu một lượng?",
+    "cac_trang_dung": [],
+    "dap_an_mau": "Không tìm thấy thông tin trong tài liệu.",
+    "loai_tai_lieu": "ngoai_pham_vi",
+    "loai_cau_hoi": "tu_choi"
+  },
+  {
+    "cau_hoi": "Who won the 2022 FIFA World Cup?",
+    "cac_trang_dung": [],
+    "dap_an_mau": "The documents do not contain this information.",
+    "loai_tai_lieu": "ngoai_pham_vi",
+    "loai_cau_hoi": "tu_choi"
+  }
+]
