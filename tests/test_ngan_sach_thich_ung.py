@@ -98,6 +98,44 @@ def test_num_predict_lon_hon_du_phong_thi_giu_nguyen_hanh_vi_cu():
 
 
 # ======================================================================
+# 2b. Trần token sinh: KHÔNG được hạ theo độ phức tạp câu hỏi
+# ======================================================================
+
+def test_moi_cau_hoi_deu_duoc_tron_ngan_sach_sinh():
+    """Hồi quy đã gây lỗi THẬT cho người dùng: câu trả lời đứt giữa chừng ở chữ "và".
+
+    Bản trước hạ num_predict xuống 3000 cho câu hỏi "đơn giản". Nhưng `num_predict` giới hạn
+    SUY LUẬN + CÂU TRẢ LỜI cộng lại, mà riêng chuỗi suy luận của qwen3 đã ngốn 2.000-4.000
+    token — nên 3000 gần như không chừa gì cho câu trả lời. Đo trên đúng câu hỏi gây lỗi:
+    num_predict=3000 cho ra 569 ký tự (đứt), num_predict=12000 cho ra 1012 ký tự (đủ).
+
+    Test này khoá lại: dù câu hỏi ngắn tới đâu, trần sinh vẫn phải là trần đầy đủ.
+    """
+    import inspect
+
+    from rag import rag_pipeline
+
+    ma_nguon = inspect.getsource(rag_pipeline.RagPipeline.sinh_cau_tra_loi_theo_luong)
+    assert "num_predict = config.OLLAMA_NUM_PREDICT" in ma_nguon, (
+        "trần sinh phải là hằng số, không được rẽ nhánh theo độ phức tạp câu hỏi"
+    )
+    assert not hasattr(config, "NUM_PREDICT_CAU_HOI_DON_GIAN"), (
+        "tham số này đã bị gỡ bỏ vì nó cắt cụt câu trả lời - đừng thêm lại"
+    )
+
+
+def test_ngan_sach_sinh_luon_du_cho_ca_suy_luan_lan_cau_tra_loi():
+    """Trần sinh phải lớn hơn hẳn chuỗi suy luận dài nhất đã quan sát được (7.232 token).
+
+    Con số 7.232 không phải phòng xa: nó đo được trên một câu hỏi bình thường. Độ dài suy
+    luận KHÔNG tương quan với độ dài câu hỏi, nên trần phải phủ được ca xấu nhất chứ không
+    phải ca trung bình.
+    """
+    SUY_LUAN_DAI_NHAT_DA_THAY = 7232
+    assert config.OLLAMA_NUM_PREDICT > SUY_LUAN_DAI_NHAT_DA_THAY * 1.5
+
+
+# ======================================================================
 # 3. Nén ngữ cảnh
 # ======================================================================
 

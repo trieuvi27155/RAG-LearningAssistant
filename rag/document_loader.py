@@ -23,7 +23,7 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 import config
-from rag import bo_nho_dem, do_thoi_gian
+from rag import bo_nho_dem, do_thoi_gian, tai_nguyen_gpu
 from rag.image_extractor import (
     MOC_ANH,
     loc_anh_lap_lai,
@@ -460,7 +460,8 @@ def _ocr_cac_trang(
          một trang ở 150 DPI mất 0,2-0,4 giây; với sách scan 400 trang, khoá theo ảnh sẽ
          khiến cache chỉ tiết kiệm được một nửa chi phí (xem bo_nho_dem.khoa_ocr).
       2. GỌI SONG SONG. Mỗi lượt OCR là một yêu cầu HTTP tới Ollama rồi ngồi chờ; chạy
-         config.SO_WORKER_VISION lượt cùng lúc không tốn thêm CPU phía Python.
+         nhiều lượt cùng lúc không tốn thêm CPU phía Python. Số worker suy từ phần cứng
+         đang có, không phải một hằng số (xem tai_nguyen_gpu.so_worker_vision).
       3. RENDER VẪN TUẦN TỰ. pypdfium2 (bộ render nền của pdfplumber) không cam kết an toàn
          đa luồng, và render là việc thuần CPU nên thread cũng không giúp được gì. Chỉ phần
          CHỜ MẠNG mới được song song hoá - đúng chỗ có lợi, không hơn.
@@ -502,7 +503,7 @@ def _ocr_cac_trang(
             logger.info("OCR: cả %d trang đều lấy lại được từ cache.", len(ket_qua))
         return ket_qua
 
-    so_worker = max(1, min(config.SO_WORKER_VISION, len(can_goi)))
+    so_worker = max(1, min(tai_nguyen_gpu.so_worker_vision(), len(can_goi)))
     logger.info(
         "OCR '%s': %d trang cần đọc lại bằng model vision (%d trang lấy từ cache), %d luồng.",
         ten_file, len(can_goi), len(ket_qua), so_worker,

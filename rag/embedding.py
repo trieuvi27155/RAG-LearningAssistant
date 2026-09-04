@@ -21,14 +21,55 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 
 import config
+from rag import tai_nguyen_gpu
 
 logger = logging.getLogger(__name__)
 
 
 class EmbeddingService:
-    def __init__(self, model_name: str = None):
+    def __init__(self, model_name: str = None, thiet_bi: str = None):
+        """thiet_bi: "cuda" / "cpu"; bỏ trống thì TỰ DÒ theo phần cứng của máy đang chạy.
+
+        Vì sao phải khai báo tường minh thay vì để sentence-transformers tự chọn: thư viện
+        tự chọn ĐÚNG, nhưng nó chọn dựa trên bản PyTorch đang cài. Một máy có GPU mà lỡ cài
+        bản `torch` CPU-only sẽ chạy toàn bộ trên CPU, không lỗi, không cảnh báo, chỉ chậm
+        hơn khoảng 13 lần (đo được: 512 chunk mất 19,90 s trên CPU so với 1,55 s trên GPU).
+        Đi qua tai_nguyen_gpu.thiet_bi() khiến lựa chọn đó được ghi ra log và chỉnh được
+        bằng cấu hình, thay vì là một thứ vô hình.
+        """
         self.model_name = model_name or config.EMBEDDING_MODEL_NAME
-        self._model = SentenceTransformer(self.model_name)
+        self.thiet_bi = thiet_bi or tai_nguyen_gpu.thiet_bi("embedding")
+        self._model = SentenceTransformer(self.model_name, device=self.thiet_bi)
+        logger.info("Model embedding '%s' chạy trên %s.", self.model_name, self.thiet_bi)
+
+    def chuyen_thiet_bi(self, thiet_bi_moi: str) -> bool:
+        """Chuyển model sang thiết bị khác. Trả True nếu thật sự có chuyển.
+
+        Dùng ở ranh giới giai đoạn (rag/tai_nguyen_gpu.py): lúc build index, embedding chạy
+        theo lô hàng nghìn chunk nên GPU thắng đậm (12,8×); lúc truy vấn thì mỗi lần chỉ mã
+        hoá 1-3 chuỗi ngắn, và ở quy mô đó GPU chỉ nhanh hơn CPU **14 mili giây** (6,1 ms so
+        với 20,3 ms) - một con số không ai cảm nhận được bên cạnh câu trả lời hàng chục giây.
+
+        Đổi lại, rời khỏi GPU trả về **1,12 GB VRAM** cho reranker và LLM. Trên card 8 GB thì
+        đó là khác biệt giữa "vừa đủ chỗ" và "ba model tranh nhau tới mức phải nạp/nhả liên
+        tục" - đo được: khi cả ba cùng nằm trên GPU, VRAM còn trống tụt xuống 288 MB.
+
+        Nuốt lỗi và trả False nếu chuyển không được: giữ nguyên thiết bị cũ luôn là một trạng
+        thái hợp lệ, không đáng làm hỏng lần build hay lượt hỏi đang chạy.
+        """
+        if thiet_bi_moi == self.thiet_bi:
+            return False
+        try:
+            self._model = self._model.to(thiet_bi_moi)
+        except Exception as loi:  # noqa: BLE001
+            logger.warning(
+                "Không chuyển được model embedding sang %s (%s) - giữ nguyên %s.",
+                thiet_bi_moi, type(loi).__name__, self.thiet_bi,
+            )
+            return False
+        logger.info("Model embedding chuyển %s -> %s.", self.thiet_bi, thiet_bi_moi)
+        self.thiet_bi = thiet_bi_moi
+        return True
 
     # ---------- Mã hoá ----------
 
@@ -39,9 +80,12 @@ class EmbeddingService:
         """
         if tien_to:
             texts = [tien_to + t for t in texts]
+        # Batch size hỏi lại ở MỖI lần encode chứ không chốt lúc khởi tạo: VRAM còn trống
+        # thay đổi theo giai đoạn (Ollama nạp/nhả model vision và LLM ngay bên cạnh), nên
+        # con số đúng lúc nạp model có thể đã sai vào lúc thật sự encode.
         embeddings = self._model.encode(
             texts,
-            batch_size=config.EMBEDDING_BATCH_SIZE,
+            batch_size=tai_nguyen_gpu.kich_thuoc_lo_embedding(),
             normalize_embeddings=True,
             show_progress_bar=False,
             convert_to_numpy=True,

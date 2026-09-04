@@ -1024,19 +1024,31 @@ def _so_worker_mac_dinh(toi_da: int) -> int:
     return max(1, min(toi_da, (os.cpu_count() or 2) // 2))
 
 
-# Số luồng gọi model vision song song (chú thích ảnh và OCR trang).
-#
-# Vì sao ĐÂY là chỗ đáng song song hoá nhất: mỗi lượt gọi là một yêu cầu HTTP tới Ollama rồi
-# NGỒI CHỜ - tiến trình Python không làm gì trong suốt thời gian đó. Benchmark của chính
-# project đo được ~1,9 giây mỗi ảnh (và 3-6 giây trên máy chỉ có CPU); với vài trăm ảnh thì
-# riêng bước này đã là nhiều phút đồng hồ chờ đợi thuần tuý.
+# TRẦN số luồng gọi model vision song song (chú thích ảnh và OCR trang). Số thật sự dùng còn
+# bị chặn thêm bởi số nhân CPU và VRAM còn trống - xem tai_nguyen_gpu.so_worker_vision().
 #
 # Vì sao dùng THREAD chứ không phải process: công việc thật nằm ở phía máy chủ Ollama, phía
 # Python chỉ chờ I/O - mà chờ I/O thì thread nhả GIL. Process sẽ phải nhân bản cả tiến trình
 # (nạp lại model embedding, mở lại index) để đổi lấy đúng con số 0 về hiệu năng.
 #
-# Đặt = 1 để quay lại hành vi tuần tự cũ (dễ đọc log hơn khi cần dò lỗi từng ảnh).
-SO_WORKER_VISION = _lay_int("SO_WORKER_VISION", _so_worker_mac_dinh(4))
+# VÌ SAO MẶC ĐỊNH 2 CHỨ KHÔNG PHẢI 4 - và đây là một con số đã bị SỬA sau khi đo lại cho
+# đàng hoàng. Bản trước đặt 4 dựa trên một phép đo cho thấy 2,47x; phép đo đó chạy trong lúc
+# một benchmark khác đang chiếm GPU nên hoàn toàn không đáng tin. Đo lại trên máy rảnh
+# (RTX 5060, OCR 6 trang Bishop, hai lần chạy):
+#
+#     worker | tổng (s)      | nhanh hơn   | GPU util TB | VRAM đỉnh
+#          1 | 49,4          | 1,00x       |        84%  |  4,95 GB
+#          2 | 31,9          | 1,55x       |        93%  |  4,95 GB
+#          4 | 32,0          | 1,54x       |        92%  |  4,95 GB
+#
+# GPU đã bão hoà ~85% ngay từ MỘT worker, nên gần như không còn thời gian rảnh để lấp: 1->2
+# lợi một chút, 2->4 không lợi gì. Mở thêm worker sau điểm đó chỉ tăng rủi ro tranh VRAM với
+# LLM và embedding ở giai đoạn sau.
+#
+# Con số này KHÁC NHAU TRÊN MỖI MÁY. Chạy `python evaluation/do_worker_gpu.py` để đo trên
+# máy của bạn - script tự đề xuất giá trị. Đặt = 1 để quay lại hành vi tuần tự (dễ đọc log
+# hơn khi cần dò lỗi từng ảnh).
+SO_WORKER_VISION = _lay_int("SO_WORKER_VISION", _so_worker_mac_dinh(2))
 
 # Số tiến trình đọc tài liệu song song. MẶC ĐỊNH 1 (tắt) - và đây là một lựa chọn có chủ ý,
 # không phải việc chưa làm xong:
@@ -1146,15 +1158,26 @@ SO_TU_CAU_HOI_DON_GIAN = _lay_int("SO_TU_CAU_HOI_DON_GIAN", 12)
 # vẫn phủ trọn TOP_K=4 kèm dư địa gấp ba cho việc đảo thứ hạng.
 SO_UNG_VIEN_RERANK_DON_GIAN = _lay_int("SO_UNG_VIEN_RERANK_DON_GIAN", 12)
 
-# Trần token sinh cho câu hỏi ĐƠN GIẢN. OLLAMA_NUM_PREDICT (12000) được đặt rộng để câu trả
-# lời dài không bị cắt cụt, nhưng nó cũng là phần cửa sổ ngữ cảnh bị GIỮ CHỖ - hạ xuống cho
-# câu hỏi ngắn giúp _tinh_num_ctx() không phải nhảy lên bậc cao hơn (mỗi lần đổi bậc là một
-# lần Ollama nạp lại model, mất hàng chục giây trên CPU).
+# KHÔNG có tham số hạ trần token sinh cho câu hỏi đơn giản - đã thử và ĐÃ GỠ BỎ.
 #
-# Đây là trần, không phải mục tiêu: model tự dừng khi viết xong. Đặt 3000 vì một câu trả lời
-# có trích dẫn cho câu hỏi định nghĩa hiếm khi vượt 1000 token, còn phần suy luận của qwen3
-# thì cần dư địa.
-NUM_PREDICT_CAU_HOI_DON_GIAN = _lay_int("NUM_PREDICT_CAU_HOI_DON_GIAN", 3000)
+# Bản trước có `NUM_PREDICT_CAU_HOI_DON_GIAN = 3000`, dựa trên lập luận "câu trả lời có
+# trích dẫn hiếm khi vượt 1000 token". Lập luận sai ở chỗ căn bản: `num_predict` giới hạn
+# SUY LUẬN + CÂU TRẢ LỜI CỘNG LẠI, mà riêng chuỗi suy luận của qwen3 đã ngốn 2.000-4.000
+# token. Suy luận không phải phần phụ - nó là phần chiếm chỗ chính.
+#
+# Hậu quả người dùng nhìn thấy: câu trả lời đứt giữa chừng. Đo trên một câu 9 từ (nên bị
+# xếp là "đơn giản"):
+#     num_predict=3000  -> sinh 2978 token, câu trả lời  569 ký tự, đứt giữa câu
+#     num_predict=12000 -> sinh 3948 token, câu trả lời 1012 ký tự, đầy đủ
+#
+# Vì sao không chỉ nâng ngưỡng: độ dài suy luận KHÔNG tương quan với độ dài câu hỏi (đo
+# được 1.261 tới 7.232 token cho các câu hỏi dài tương đương), nên không tồn tại ngưỡng
+# theo số từ nào an toàn. Và khoản lợi vốn dĩ bằng KHÔNG: _tinh_num_ctx() giữ chỗ
+# min(OLLAMA_DU_PHONG_TOKEN_SINH=4000, num_predict), nên mọi giá trị >= 4000 cho ra cùng
+# một num_ctx - muốn tiết kiệm thì phải xuống dưới 4000, tức đúng vùng gây cắt cụt.
+#
+# Tham số này chỉ "có lợi" khi nó không an toàn, nên nó không tồn tại. Phần thích ứng còn
+# lại (SO_UNG_VIEN_RERANK_DON_GIAN) tiết kiệm thật mà không cắt gì của ai.
 
 # Nén ngữ cảnh khi prompt vượt trần cửa sổ: cắt bớt đoạn trích (từ đoạn xếp hạng thấp nhất
 # lên) thay vì để Ollama cắt im lặng mất đầu ngữ cảnh.
@@ -1164,3 +1187,106 @@ NUM_PREDICT_CAU_HOI_DON_GIAN = _lay_int("NUM_PREDICT_CAU_HOI_DON_GIAN", 3000)
 # vẫn trả lời được, với phần bị bỏ là phần ÍT LIÊN QUAN NHẤT - lựa chọn của hệ thống, ghi
 # rõ trong log, thay vì lựa chọn ngẫu nhiên của bộ cắt prompt.
 BAT_NEN_NGU_CANH = _lay_bool("BAT_NEN_NGU_CANH", True)
+
+
+# ============================================================
+# PHẦN CỨNG: GPU/CPU VÀ QUẢN LÝ VRAM
+# ============================================================
+# Hệ thống TỰ DÒ phần cứng chứ không giả định máy nào. Có GPU NVIDIA dùng được thì embedding
+# và reranker chạy trên đó; không có thì tự lùi về CPU và mọi thứ vẫn chạy đúng, chỉ chậm
+# hơn. Batch size, số worker và ngưỡng VRAM đều SUY RA từ thứ máy tự báo cáo - một hằng số
+# hợp với card 8 GB sẽ vừa phí trên card 24 GB vừa gây tràn trên card 4 GB.
+#
+# Toàn bộ logic nằm ở rag/tai_nguyen_gpu.py; ở đây chỉ là các trần và ngưỡng người dùng có
+# thể chỉnh.
+#
+# ĐO ĐƯỢC trên RTX 5060 8 GB (xem KET_QUA_DO_DAC.md §8) - đây là lý do nhóm tham số này
+# tồn tại:
+#     Embedding 512 chunk      : CPU 19,90 s -> GPU 1,55 s  (12,8x)
+#     Rerank 12 cặp            : CPU  1,68 s -> GPU 0,15 s  (11,2x)
+#     Truy xuất đầu-cuối 6 câu : CPU 15,21 s -> GPU 1,69 s  (9,0x)
+# Reranker nằm trên đường đi của MỌI câu hỏi, nên thời gian tiết kiệm ở đó là thời gian
+# người dùng bớt phải chờ trước khi thấy chữ đầu tiên. Và quan trọng không kém: 6/6 câu hỏi
+# cho KẾT QUẢ GIỐNG HỆT giữa CPU và GPU - nhanh hơn mà không đổi một đoạn trích nào.
+
+# Thiết bị cho từng vai trò: "auto" (tự dò) | "cuda" | "cpu".
+#
+# Tách RIÊNG hai vai trò thay vì một công tắc chung là có chủ đích: embedding chạy theo lô
+# lớn lúc build index (rất hợp GPU), còn reranker chạy vài chục cặp mỗi câu hỏi và phải chia
+# VRAM với LLM. Trên một card nhỏ, cấu hình hợp lý có thể là embedding trên GPU còn reranker
+# trên CPU - và điều đó chỉ nói được nếu hai vai trò tách riêng.
+#
+# Đặt "cpu" để đo đối chứng, hoặc khi GPU đang phải dành cho việc khác.
+THIET_BI_EMBEDDING = _lay_str("THIET_BI_EMBEDDING", "auto")
+THIET_BI_RERANK = _lay_str("THIET_BI_RERANK", "auto")
+
+# Bật quản lý VRAM theo giai đoạn: hết ingestion thì nhả model vision và dọn bộ đệm CUDA.
+#
+# Vì sao cần: riêng ba model của giai đoạn truy vấn (LLM 4,75 GB + reranker 2,20 GB +
+# embedding 1,12 GB) đã là 8,07 GB, không vừa card 7,96 GB - chưa tính model vision của
+# giai đoạn ingestion. Mà tràn VRAM thì KHÔNG báo
+# lỗi - driver âm thầm đẩy phần thừa sang RAM hệ thống hoặc Ollama liên tục nạp/nhả model,
+# khiến hệ thống chậm hơn cả lúc chạy thuần CPU mà không có dấu hiệu nào chỉ ra nguyên nhân.
+#
+# Tự bỏ qua khi máy không có GPU: lúc đó không có VRAM nào để tranh.
+BAT_QUAN_LY_VRAM = _lay_bool("BAT_QUAN_LY_VRAM", True)
+
+# Cho phép gửi keep_alive=0 để Ollama nhả model NGAY khi hết ingestion, thay vì đợi hết 5
+# phút giữ mặc định. Năm phút đó rơi đúng vào lúc người dùng vừa build index xong và bắt đầu
+# đặt câu hỏi - tức lúc VRAM đang cần cho LLM và reranker chứ không phải cho vision.
+NHA_MODEL_SAU_INGESTION = _lay_bool("NHA_MODEL_SAU_INGESTION", True)
+
+# Ngưỡng VRAM CÒN TRỐNG (GB) để chọn batch size encode.
+#
+# Đây là chỗ một phép đo đã lật ngược trực giác "GPU thì cứ tăng batch cho nhanh". Đo trên
+# RTX 5060, 768 chunk:
+#     batch  16 -> 329 chunk/s, VRAM đỉnh 1,21 GB
+#     batch  32 -> 339 chunk/s, VRAM đỉnh 1,31 GB
+#     batch  64 -> 337 chunk/s, VRAM đỉnh 1,52 GB
+#     batch 128 -> 337 chunk/s, VRAM đỉnh 1,92 GB
+#     batch 256 -> 324 chunk/s, VRAM đỉnh 2,80 GB
+# Throughput ĐỨNG YÊN từ 16 tới 128 rồi TỤT ở 256, trong khi VRAM tăng đều. Nút thắt không
+# nằm ở độ song song của lô, nên batch lớn chỉ mua thêm rủi ro tràn mà không mua được tốc độ.
+#
+# Vì vậy hai ngưỡng dưới đây chỉ dùng để HẠ batch khi máy chật, không bao giờ để nâng lên
+# quá EMBEDDING_BATCH_SIZE. Dựa vào VRAM CÒN TRỐNG (không phải tổng VRAM) vì trên cùng một
+# card, còn trống bao nhiêu phụ thuộc Ollama đang giữ model nào - và điều đó đổi theo giai đoạn.
+VRAM_DU_CHO_LO_LON_GB = _lay_float("VRAM_DU_CHO_LO_LON_GB", 3.0)
+VRAM_DU_CHO_LO_VUA_GB = _lay_float("VRAM_DU_CHO_LO_VUA_GB", 2.0)
+
+# VRAM (GB) ước tính cho MỖI worker vision/OCR chạy song song, dùng để suy ra số worker tối
+# đa mà card hiện tại gánh nổi. Mỗi yêu cầu song song tới Ollama cần thêm một ngữ cảnh riêng
+# trong VRAM; card càng nhỏ thì càng ít chỗ.
+#
+# 1,5 GB là ước lượng thận trọng cho model vision cỡ 3B ở độ dài ngữ cảnh của một trang tài
+# liệu. Ước lượng DƯ ở đây an toàn hơn ước lượng thiếu: thiếu thì Ollama nạp/nhả model liên
+# tục và chậm hơn hẳn so với việc chạy ít worker hơn.
+VRAM_MOI_WORKER_VISION_GB = _lay_float("VRAM_MOI_WORKER_VISION_GB", 1.5)
+
+# Tổng VRAM (GB) tối thiểu để GIỮ embedding trên GPU trong cả giai đoạn TRUY VẤN.
+#
+# Dưới ngưỡng này, hết ingestion là embedding bị đẩy xuống CPU để nhường chỗ cho reranker và
+# LLM. Vì sao hy sinh đúng model đó, và vì sao đây không phải phỏng đoán:
+#
+#     LLM qwen3:4b (num_ctx 16384) 4,75 GB   <- đo bằng nvidia-smi và /api/ps của Ollama
+#     reranker bge-v2-m3           2,20 GB
+#     embedding e5-base            1,12 GB
+#     ------------------------------------
+#     tổng                         8,07 GB   > 8 GB của card
+#
+# Hậu quả đã QUAN SÁT ĐƯỢC khi để cả ba trên GPU: VRAM còn trống tụt xuống 288 MB, reranker
+# mất gần một phút mới nạp xong, và lượt hỏi đầu tiên báo "truy xuất 50,8 giây" - trong khi
+# cùng phép đo đó trên máy thoáng chỉ mất 2,6 giây.
+#
+# Vì sao embedding là thứ đáng hy sinh: lúc truy vấn nó chỉ mã hoá 1-3 chuỗi ngắn, và ở quy
+# mô đó GPU chỉ nhanh hơn CPU **14 mili giây** (6,1 ms so với 20,3 ms) - không ai cảm nhận
+# được bên cạnh câu trả lời hàng chục giây. Reranker thì ngược lại: nó chấm vài chục cặp mỗi
+# câu và ở đó GPU nhanh hơn 11,2 lần (1,68 s xuống 0,15 s cho 12 cặp).
+#
+# Tính theo TỔNG VRAM chứ không phải phần còn trống: quyết định phải ổn định cho cả phiên, mà
+# phần còn trống thì dao động theo việc Ollama vừa nạp hay vừa nhả model. Ngưỡng 10 GB = 8,07
+# GB của ba model + khoảng thở cho Windows và ứng dụng nền.
+#
+# Đặt 0 để LUÔN giữ embedding trên GPU (chấp nhận rủi ro tranh VRAM); đặt rất lớn để luôn
+# đẩy nó xuống CPU sau ingestion.
+VRAM_DU_GIU_EMBEDDING_TREN_GPU_GB = _lay_float("VRAM_DU_GIU_EMBEDDING_TREN_GPU_GB", 10.0)

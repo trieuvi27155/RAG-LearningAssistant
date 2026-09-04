@@ -47,6 +47,7 @@ rag-do-an/
 ├── rag/
 │   ├── document_loader.py      # Đọc PDF/PPTX/DOCX một lượt, giữ metadata
 │   ├── bo_nho_dem.py           # Cache theo content hash: tài liệu, OCR, chú thích ảnh, embedding
+│   ├── tai_nguyen_gpu.py       # Dò phần cứng (GPU/CPU) + quản lý VRAM theo giai đoạn
 │   ├── do_thoi_gian.py         # Đo thời gian từng bước Ingestion (bảng tổng kết sau mỗi lần build)
 │   ├── chunking.py             # Recursive Character Splitting
 │   ├── embedding.py            # Wrapper cho sentence-transformers
@@ -68,7 +69,9 @@ rag-do-an/
 │   ├── kiem_dinh_doi_chieu.py  # Đo độ tin cậy của cơ chế phát hiện mâu thuẫn
 │   ├── kiem_dinh_viet_lai.py   # Đo nhận diện câu nối tiếp + ảnh hưởng thật lên truy xuất
 │   ├── do_nguong_rerank.py     # Đo xem điểm rerank có tách được câu lạc đề không
-│   └── do_quy_mo_index.py      # Đo ngưỡng quy mô của FAISS (Flat vs IVF vs HNSW)
+│   ├── do_quy_mo_index.py      # Đo ngưỡng quy mô của FAISS (Flat vs IVF vs HNSW)
+│   ├── do_worker_gpu.py        # Đo số worker OCR/Vision tối ưu (kèm GPU util + VRAM)
+│   └── do_dau_cuoi.py          # Đo ĐẦU-CUỐI: nạp tài liệu → hỏi được, và hỏi → trả lời xong
 ├── data/
 │   ├── raw/                    # Tài liệu gốc upload vào
 │   ├── images/                 # Ảnh trích từ tài liệu (tự sinh khi build index)
@@ -86,7 +89,21 @@ rag-do-an/
 ## Cài đặt và chạy
 
 **Yêu cầu:** Python 3.11+ (đã kiểm chứng trên 3.14) · [Ollama](https://ollama.com) đã cài và
-đã `ollama pull qwen3:4b` · không bắt buộc GPU (embedding ~1.1GB + reranker ~2.2GB, tải 1 lần).
+đã `ollama pull qwen3:4b` · **không bắt buộc GPU** (embedding ~1.1GB + reranker ~2.2GB, tải 1 lần).
+
+**Có GPU NVIDIA thì nên cài PyTorch bản CUDA** — `pip install sentence-transformers` kéo về
+bản **CPU-only**, và đó là một cấu hình sai *không gây lỗi*: hệ thống vẫn trả lời đúng, chỉ
+chậm hơn nhiều lần. Đo được trên RTX 5060: embedding **12,8×**, rerank **11,2×**, truy xuất
+đầu-cuối **9,0×** — mà **6/6 câu hỏi cho kết quả giống hệt** (KET_QUA_DO_DAC.md §8).
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cu130
+```
+
+Thay `cu130` cho khớp driver (`nvidia-smi` in ra CUDA Version; RTX 50xx cần ≥ cu128). Kiểm
+tra: `python -c "import torch; print(torch.cuda.is_available())"`. Thanh bên của ứng dụng
+cũng hiện rõ đang chạy GPU hay CPU, nên không cần nhớ kiểm tra. **Không có GPU thì bỏ qua
+hoàn toàn mục này** — hệ thống tự dò và lùi về CPU, không phải chỉnh gì.
 
 ```bash
 pip install -r requirements.txt
@@ -182,13 +199,72 @@ pdf_nhan_dien_tieu_de                 758        0.7       1.0   1.6%
 Đọc bảng này ra được ngay một kết luận: với tài liệu **thuần chữ** thì 87,5% thời gian nằm ở
 việc đọc text, chứ không phải ở trích ảnh hay nhận diện tiêu đề — tức mọi nỗ lực tối ưu hai
 bước kia đều là tối ưu nhầm chỗ. Với tài liệu **scan** thì bức tranh đảo ngược hoàn toàn:
-OCR chiếm gần như toàn bộ (đo được 32,9 giây **mỗi trang**, xem KET_QUA_DO_DAC.md §7.3).
+OCR chiếm gần như toàn bộ (đo được 5,3 giây **mỗi trang** trên GPU, xem KET_QUA_DO_DAC.md §8.5).
 
 **Ảnh không mang nội dung bị loại trước khi render.** Icon, logo góc trang, dải trang trí và
 hình lặp lại kiểu watermark đều bị lọc trước cả bước render — mỗi ảnh giữ lại kéo theo một
 lượt render, một file trên đĩa, một lượt gọi model vision (~1,9 giây) và một vector trong
 index. Đo trên corpus thật, số bản ghi ảnh giảm 401 → 261 ở một bài giảng IoT và 219 → 168 ở
 một file DOCX, **trong khi số bản ghi văn bản không đổi một đơn vị nào**.
+
+## Tận dụng phần cứng
+
+Hệ thống **tự dò phần cứng** rồi tự chọn cách chạy — không có gì phải cấu hình bằng tay, và
+không có hằng số nào hiệu chỉnh riêng cho một loại card. Có GPU dùng được thì embedding và
+reranker chạy trên đó; không có thì lùi về CPU và mọi thứ vẫn đúng, chỉ chậm hơn.
+
+| Tham số | Suy từ đâu |
+|---|---|
+| Thiết bị cho embedding / rerank | có CUDA hay không (ép riêng từng vai trò bằng `THIET_BI_*`) |
+| Batch size encode | VRAM **còn trống**, chặn trên bởi `EMBEDDING_BATCH_SIZE` |
+| Số worker OCR/Vision | min(trần cấu hình, số nhân CPU, VRAM còn trống) |
+
+**Quản lý VRAM theo giai đoạn.** Đo thật bằng `nvidia-smi`, ba model của giai đoạn truy vấn
+cộng lại **8,07 GB** (LLM 4,75 + reranker 2,20 + embedding 1,12) — **không vừa card 8 GB**.
+Mà tràn VRAM thì *không báo lỗi*: quan sát được VRAM còn trống tụt xuống **288 MB**, model
+reranker mất ~58 giây mới nạp xong, và lượt hỏi đầu tiên báo **50,8 giây** cho bước truy
+xuất. Không một dòng lỗi nào.
+
+Vì người dùng bấm "Đọc tài liệu" rồi mới hỏi, hai giai đoạn không bao giờ chạy cùng lúc:
+
+```
+INGESTION  →  Vision/OCR + embedding(GPU)   … kết thúc: còn 0,79 GB trống
+    ↓ nhả model vision · dọn bộ đệm CUDA    … còn 5,70 GB
+    ↓ card chật → embedding xuống CPU       … còn 6,79 GB
+QUERY      →  reranker(GPU) + LLM(GPU)
+```
+
+Thứ bị hy sinh là embedding, vì lúc truy vấn nó chỉ mã hoá 1–3 chuỗi ngắn (GPU nhanh hơn CPU
+đúng 14 ms), còn reranker chấm vài chục cặp mỗi câu (GPU nhanh hơn 11,2×). Kết quả: truy
+xuất còn **0,45 giây** mỗi câu. Card lớn hơn `VRAM_DU_GIU_EMBEDDING_TREN_GPU_GB` (mặc định
+10 GB) thì giữ tất cả trên GPU, không phải đánh đổi gì.
+
+**Đo trên máy của bạn** — con số tối ưu khác nhau ở mỗi máy, đừng chép của người khác:
+
+```bash
+python evaluation/do_worker_gpu.py
+```
+
+```bash
+python evaluation/do_dau_cuoi.py
+```
+
+Script thứ nhất thử lần lượt 1/2/4 worker OCR, đo kèm GPU utilization và VRAM, rồi tự đề
+xuất giá trị `SO_WORKER_VISION`. Script thứ hai đo **đầu-cuối**: từ lúc đưa tài liệu vào tới
+lúc hỏi được, và từ lúc gửi câu hỏi tới lúc nhận câu trả lời hoàn chỉnh — cộng các phép đo
+lẻ lại luôn ra con số nhỏ hơn thực tế, vì chúng đều đo với model đã nạp sẵn và cache đã ấm.
+
+**Nút thắt hiện nay nằm ở đâu** (đo được, không phải phỏng đoán):
+
+| Giai đoạn | Chi phí lớn nhất | Tỉ trọng |
+|---|---|---:|
+| Nạp tài liệu lần đầu (tài liệu nhiều hình) | chú thích ảnh bằng model vision | **89,8%** |
+| Nạp lại (cache đầy) | — (3,48 s cho 1209 chunk, nhanh hơn 81×) | — |
+| Mỗi câu hỏi | LLM sinh chữ (chủ yếu là suy luận nội bộ của qwen3) | **~98%** |
+
+Truy xuất chỉ còn **0,45 giây** mỗi câu (trung vị), tức khoảng **1,3%** thời gian một lượt
+hỏi — không còn là chỗ đáng tối ưu tiếp. Trong 0,45 giây đó: rerank 0,45 s, mã hoá câu hỏi
+0,02 s, còn FAISS thì dưới 1 mili giây.
 
 ## Sự cố thường gặp
 
@@ -228,7 +304,7 @@ vậy là tái tạo lại đúng bug prompt bị cắt im lặng.
 pytest tests/ -v
 ```
 
-**379 test.** Một số ít phải nạp model thật nên chạy chậm; bỏ qua chúng bằng
+**402 test.** Một số ít phải nạp model thật nên chạy chậm; bỏ qua chúng bằng
 `pytest -m "not slow"` trong lúc đang sửa code.
 
 `tests/conftest.py` trỏ `data/cache/` và `data/images/` sang thư mục tạm cho cả phiên test —
@@ -555,9 +631,20 @@ Lý do đầy đủ nằm trong comment ngay tại chỗ trong code và ở ARCH
   cache theo **băm nội dung**. Đo trên Bishop (trung vị 3 lần): 58,8s → **48,3s** với **cùng
   809 bản ghi** và chữ tách **tốt hơn** ở 540 trang; lần đọc thứ hai gần như bằng 0 (§5.66).
 - **Song song hoá đúng chỗ có lợi**: OCR và chú thích ảnh chạy nhiều luồng vì chúng ngồi chờ
-  Ollama trả lời (đo được: 8 trang Bishop 262,9s → 106,4s, nhanh 2,47×). Đọc PDF thì **cố ý
+  Ollama trả lời — nhưng mức lợi nhỏ hơn trực giác nhiều: GPU đã bão hoà ~85% ngay từ MỘT
+  worker, nên 1→2 worker lợi 1,55× còn **2→4 không lợi gì** (§8.5). Đọc PDF thì **cố ý
   không** song song hoá — nó là việc thuần CPU bị GIL chặn, và sau khi có cache thì lần build
   thứ hai gần như không còn đọc lại tài liệu nào (§5.66).
+- **Dò phần cứng thay vì giả định**: embedding và reranker tự chạy trên GPU nếu máy có, tự
+  lùi về CPU nếu không; batch size và số worker suy từ VRAM còn trống chứ không phải hằng số
+  hợp với một loại card. Điều này quan trọng vì `torch` bản CPU-only trên máy CÓ GPU là một
+  cấu hình sai **không gây lỗi** — chỉ chậm hơn 13× ở embedding và 5× ở rerank, nên phải
+  được hệ thống tự nói ra. Đo được: truy xuất đầu-cuối nhanh **12×** mà **6/6 câu cho kết
+  quả giống hệt** (§5.68).
+- **Chia VRAM theo giai đoạn**: riêng ba model của giai đoạn truy vấn đã là 8,07 GB, không
+  vừa card 7,96 GB, mà tràn VRAM thì *không báo lỗi* — chỉ chậm hơn cả chạy CPU. Hết
+  ingestion là nhả model vision và đẩy embedding về CPU (đo được: 0,79 GB trống → 6,79 GB).
+  Máy không GPU thì bước này tự bỏ qua (§5.68).
 - **Ngữ cảnh quá lớn thì cắt ĐOẠN, không hạ `num_ctx`**: hạ `num_ctx` không làm prompt ngắn
   lại, nó chỉ chuyển quyền quyết định cắt chỗ nào sang Ollama — mà Ollama luôn cắt từ **đầu**,
   tức xoá đúng đoạn trích liên quan nhất (§5.60). Nay hệ thống tự bỏ các đoạn xếp hạng **thấp
@@ -586,7 +673,7 @@ Lý do đầy đủ nằm trong comment ngay tại chỗ trong code và ở ARCH
 - **Đổi model embedding thì phải bấm "Đọc tài liệu"** — quên build lại không gây lỗi (2 model có
   thể cùng số chiều) mà chỉ khiến kết quả sai âm thầm; hệ thống tự đối chiếu và cảnh báo trên
   UI, `run_evaluation.py` thì dừng hẳn.
-- Câu hỏi thường mất ~35–70 giây trên CPU với `qwen3:4b` (đã gồm ~6s rerank), do model luôn
+- Câu hỏi thường mất ~25–33 giây với `qwen3:4b` trên GPU (truy xuất chỉ ~2,6s trong số đó — xem KET_QUA_DO_DAC.md §8; bản chạy CPU-only trước đây mất ~35–70 giây), do model luôn
   sinh phần suy luận nội bộ dài trước khi trả lời — đặc tính của model, `/no_think` lẫn
   `think=False` đều không rút ngắn được (§5.23). Câu bị từ chối chỉ mất ~6 giây vì không gọi
   LLM. Tổng thời gian không rút ngắn được, nhưng thời gian **nhìn thấy màn hình đứng yên** thì
@@ -647,8 +734,14 @@ vét cạn nên độ trễ tăng tuyến tính theo số chunk. Chạy `python 
 model không sinh suy luận cho câu hỏi truy xuất thường (giữ qwen3 cho câu kiểm chứng), lượng tử
 hoá thấp hơn (q4 → q3), hoặc chạy GPU. Cả ba đều phải đo lại chất lượng trước khi chốt.
 
-*Phần chi phí INGESTION đã làm xong* (§5.66, KET_QUA_DO_DAC.md §7.3). Việc còn lại ở phía truy
-vấn: **adaptive TOP-K**. Nó bị hoãn có chủ đích chứ không phải bỏ quên — `TOP_K=4` là giá trị
+*Phần chi phí INGESTION và phần GPU đã làm xong* (§5.66, §5.68; KET_QUA_DO_DAC.md §8).
+Sau hai đợt đó, nút thắt đã chuyển hẳn: **~98% thời gian mỗi câu hỏi nay nằm ở việc LLM sinh
+chữ**, mà phần lớn là chuỗi suy luận nội bộ của qwen3. Đường khả dĩ còn lại là dùng model
+không sinh suy luận cho câu hỏi thường — nhưng đã kiểm chứng lại trên Ollama 0.33.2 rằng
+`think=False` **không** làm được việc đó (nó chỉ đổ chuỗi lập luận thẳng vào câu trả lời,
+§8), nên phải đổi hẳn model và đo lại Faithfulness trước khi chốt.
+
+Việc còn lại ở phía truy xuất: **adaptive TOP-K**. Nó bị hoãn có chủ đích chứ không phải bỏ quên — `TOP_K=4` là giá trị
 mà toàn bộ Recall@K, MRR và các ngưỡng lọc đã hiệu chỉnh trên đó, nên hạ nó cho "câu hỏi đơn
 giản" mà không đo lại chính là đổi độ chính xác lấy tốc độ. Cần một phép đo Recall@K tách theo
 nhóm độ phức tạp câu hỏi trước đã.

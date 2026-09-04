@@ -33,6 +33,7 @@ import ollama
 from langdetect import DetectorFactory, LangDetectException, detect_langs
 
 import config
+from rag import do_thoi_gian
 from rag.citation import do_bam_ngu_canh
 from rag.doi_chieu_nguon import tim_mau_thuan
 from rag.embedding import EmbeddingService
@@ -918,11 +919,12 @@ class RagPipeline:
         )
         # Truy vấn CHÍNH là bản đã mang ngữ cảnh (nếu có): nó là câu đủ nghĩa, nên cosine của
         # nó mới là con số so được với các ngưỡng vốn hiệu chỉnh trên câu hỏi độc lập.
-        cac_truy_van = [(
-            cau_hoi_chinh,
-            self.embedding_service.encode_cau_hoi([cau_hoi_chinh]),
-            1.0,
-        )]
+        with do_thoi_gian.do("query_ma_hoa_cau_hoi"):
+            cac_truy_van = [(
+                cau_hoi_chinh,
+                self.embedding_service.encode_cau_hoi([cau_hoi_chinh]),
+                1.0,
+            )]
         # Câu GỐC được giữ làm một nhánh riêng để một lần ghép ngữ cảnh sai không xoá được
         # kết quả đúng - xem config.TRONG_SO_TRUY_VAN_GOC.
         for van_ban, trong_so in (
@@ -933,7 +935,8 @@ class RagPipeline:
                 (van_ban, self.embedding_service.encode_cau_hoi([van_ban]), trong_so)
             )
 
-        ung_vien, vi_tri_cuu_ho = self._ung_vien(cac_truy_van, so_ung_vien, nguon_cho_phep)
+        with do_thoi_gian.do("query_ung_vien_dense_bm25"):
+            ung_vien, vi_tri_cuu_ho = self._ung_vien(cac_truy_van, so_ung_vien, nguon_cho_phep)
         # Rerank theo truy vấn CHÍNH: cross-encoder chấm cặp (câu hỏi, đoạn) nên nó cần một
         # câu hỏi đầy đủ nghĩa. Đưa "Thế còn cái thứ hai?" vào đây thì mọi đoạn đều bị chấm
         # gần 0 - và vì điểm rerank còn là cơ chế TỪ CHỐI (§5.29), câu nối tiếp hợp lệ sẽ bị
@@ -945,13 +948,14 @@ class RagPipeline:
         # ("Thế còn cái thứ hai?") nhưng bản đủ nghĩa của nó thì không - chấm trên câu gốc sẽ
         # cấp ngân sách thấp cho đúng loại câu hỏi khó nhất của hệ thống.
         self.la_cau_hoi_phuc_tap = la_cau_hoi_phuc_tap(cau_hoi_chinh)
-        ung_vien = self._xep_hang_lai(
-            cau_hoi_chinh, ung_vien, vi_tri_cuu_ho,
-            so_ung_vien_rerank=(
-                config.SO_UNG_VIEN_RERANK if self.la_cau_hoi_phuc_tap
-                else config.SO_UNG_VIEN_RERANK_DON_GIAN
-            ),
-        )
+        with do_thoi_gian.do("query_rerank"):
+            ung_vien = self._xep_hang_lai(
+                cau_hoi_chinh, ung_vien, vi_tri_cuu_ho,
+                so_ung_vien_rerank=(
+                    config.SO_UNG_VIEN_RERANK if self.la_cau_hoi_phuc_tap
+                    else config.SO_UNG_VIEN_RERANK_DON_GIAN
+                ),
+            )
 
         # TRẦN SỐ ĐOẠN MỖI TRANG - THÍCH ỨNG. Trần chỉ có ý nghĩa khi CÓ nhiều trang để phân
         # bổ. Với câu hỏi mà toàn bộ câu trả lời nằm gọn trong một trang (một mục định nghĩa,
@@ -1296,16 +1300,31 @@ class RagPipeline:
         else:
             he_thong_prompt = HE_THONG_PROMPT_EN if ngon_ngu == "en" else HE_THONG_PROMPT_VI
 
-        # NGÂN SÁCH SINH THÍCH ỨNG. Dùng lại phán đoán độ phức tạp mà truy_xuat() đã đặt
-        # (self.la_cau_hoi_phuc_tap) thay vì tự đánh giá lại: bước truy xuất nhìn thấy bản
-        # câu hỏi ĐÃ MANG NGỮ CẢNH hội thoại, còn ở đây chỉ có câu người dùng gõ - tự đánh
-        # giá lại sẽ xếp một câu nối tiếp ngắn vào nhóm đơn giản dù nó không hề đơn giản.
-        # Khi hàm này được gọi thẳng (evaluation, test) thì cờ giữ giá trị mặc định True,
-        # tức ngân sách đầy đủ - đúng hành vi cũ, không có gì bị cắt sau lưng.
-        num_predict = (
-            config.OLLAMA_NUM_PREDICT if self.la_cau_hoi_phuc_tap
-            else config.NUM_PREDICT_CAU_HOI_DON_GIAN
-        )
+        # NGÂN SÁCH SINH KHÔNG THÍCH ỨNG - và đây là một tính năng đã bị GỠ BỎ sau khi nó
+        # gây lỗi thật cho người dùng. Ghi lại đầy đủ để không ai thêm lại.
+        #
+        # Bản trước hạ num_predict xuống 3000 cho câu hỏi "đơn giản", với lập luận: "câu trả
+        # lời có trích dẫn hiếm khi vượt 1000 token, phần suy luận của qwen3 thì cần dư địa".
+        # Lập luận đó SAI ở chỗ căn bản: `num_predict` giới hạn SUY LUẬN + CÂU TRẢ LỜI CỘNG
+        # LẠI, mà riêng chuỗi suy luận của qwen3 đã ngốn 2.000-4.000 token. Suy luận không
+        # phải phần phụ cần "dư địa" - nó là phần chiếm chỗ CHÍNH.
+        #
+        # Hậu quả người dùng nhìn thấy: câu trả lời đứt giữa chừng, kết thúc bằng chữ "và".
+        # Đo lại trên đúng câu hỏi đó ("Tài liệu X nói về những nội dung gì?" - 9 từ nên bị
+        # xếp là đơn giản):
+        #     num_predict=3000  -> sinh 2978 token, câu trả lời  569 ký tự (sát trần, đứt)
+        #     num_predict=12000 -> sinh 3948 token, câu trả lời 1012 ký tự (đủ)
+        #
+        # Vì sao KHÔNG chỉ nâng ngưỡng lên cho an toàn: độ dài suy luận không hề tương quan
+        # với độ dài câu hỏi (đo được 1.261 tới 7.232 token cho những câu hỏi dài tương đương),
+        # nên không tồn tại một ngưỡng theo số từ nào là an toàn. Và quan trọng hơn - khoản
+        # lợi vốn dĩ bằng KHÔNG: _tinh_num_ctx() giữ chỗ min(OLLAMA_DU_PHONG_TOKEN_SINH=4000,
+        # num_predict), nên mọi giá trị từ 4000 trở lên cho ra cùng một num_ctx. Muốn tiết
+        # kiệm được gì thì phải xuống dưới 4000, tức đúng vùng gây cắt cụt.
+        #
+        # Tóm lại: tham số này chỉ "có lợi" khi nó không an toàn. Ngân sách RERANK thích ứng
+        # (30 so với 12 ứng viên) thì vẫn giữ - nó tiết kiệm thật và không cắt gì của ai.
+        num_predict = config.OLLAMA_NUM_PREDICT
 
         # NÉN NGỮ CẢNH TRƯỚC KHI GHÉP PROMPT, không phải sau. Phải ước lượng được phần CỐ
         # ĐỊNH của prompt (system prompt, câu hỏi, khối ngữ cảnh hội thoại) mới biết còn lại

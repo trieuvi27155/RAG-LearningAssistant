@@ -19,20 +19,23 @@ Mọi con số trong file này đều đo lại trên **cùng một index**, b�
 | faiss | 1.15.0 |
 | sentence-transformers | 6.0.0 |
 | streamlit | 1.62.0 |
-| **torch** | **2.13.0+cpu — CUDA KHÔNG khả dụng** |
+| **torch** | **2.13.0+cu130 — CUDA 13.0 khả dụng** (§7.4) |
+| Driver NVIDIA | 610.74 · compute capability 12.0 (Blackwell) |
 
-> **Chi tiết ảnh hưởng trực tiếp tới mọi con số độ trễ bên dưới:** `torch` là bản CPU-only,
-> nên **embedding và cross-encoder rerank chạy hoàn toàn trên CPU**, trong khi Ollama (LLM
-> `qwen3:4b` và vision `qwen2.5vl:3b`) chạy trên GPU. Đây là lý do phần truy xuất tốn 11–12
-> giây/câu trong khi phần sinh câu trả lời — vốn nặng hơn nhiều — lại nhanh hơn. Cài `torch`
-> bản CUDA sẽ rút ngắn đáng kể phần truy xuất; con số trong báo cáo nên kèm ghi chú này.
+> **ĐÃ THAY ĐỔI so với bản báo cáo trước.** Bản trước chạy `torch 2.13.0+cpu`, nên embedding
+> và cross-encoder rerank chạy **hoàn toàn trên CPU** trong khi GPU chỉ phục vụ Ollama — đó
+> là lý do phần truy xuất khi ấy tốn **11–12 giây/câu**. Sau khi chuyển sang bản CUDA
+> (§7.4), truy xuất còn **~2,6 giây/câu** và cho **kết quả giống hệt từng đoạn một**.
+>
+> **Mọi con số độ trễ ở §4–§6 dưới đây đo TRƯỚC thay đổi này** và được giữ nguyên làm mốc
+> đối chứng, không phải vì chúng còn mô tả đúng hệ thống hiện tại. Số mới nằm ở §7.4.
 
 **Model sử dụng**
 
-| Vai trò | Model | Nơi chạy |
+| Vai trò | Model | Nơi chạy (trước → **sau §7.4**) |
 |---|---|---|
-| Embedding | `intfloat/multilingual-e5-base` (768 chiều) | CPU |
-| Rerank (cross-encoder) | `BAAI/bge-reranker-v2-m3` | CPU |
+| Embedding | `intfloat/multilingual-e5-base` (768 chiều) | CPU → **GPU** |
+| Rerank (cross-encoder) | `BAAI/bge-reranker-v2-m3` | CPU → **GPU** |
 | Sinh câu trả lời | `qwen3:4b` qua Ollama | GPU |
 | Chú thích ảnh | `qwen2.5vl:3b` qua Ollama | GPU |
 | Chấm điểm (LLM-as-judge) | `qwen3:4b` | GPU |
@@ -553,121 +556,299 @@ Nhất quán trên cả hai bộ:
 
 ---
 
-### 7.3 Tối ưu luồng Ingestion — trước và sau
+## 8. Hiệu năng hệ thống: phần cứng, ingestion và truy vấn
 
-Đo bằng cách chạy **cùng một corpus qua hai phiên bản code** (bản trước tối ưu lấy từ
-`git worktree` ở commit gốc, bản sau là code hiện tại), rồi so **cả thời gian lẫn từng bản
-ghi sinh ra**. So đầu ra là phần bắt buộc: một tối ưu ingestion làm nội dung index xấu đi là
-một tối ưu đã thất bại, dù nó nhanh tới đâu — và khác biệt kiểu đó không thể phát hiện bằng
-cách đọc lại code.
+Toàn bộ số liệu mục này đo **trên hệ thống ở trạng thái hiện tại**, bằng hai script trong
+`evaluation/`. Không có cột "trước/sau": đây là bảng mô tả hệ thống đang chạy như thế nào,
+không phải bảng chứng minh một thay đổi nào đó.
 
-Cấu hình khi đo: `BAT_CHU_THICH_ANH=0`, `BAT_CACHE_INGESTION=0` (để đo **chi phí thật của lần
-đọc đầu tiên**, không lẫn phần cache trúng).
-
-**Thời gian đọc, cùng nội dung đầu vào**
-
-Bishop được đo **3 lần mỗi phiên bản** vì lần đo đơn lẻ đầu tiên cho 47,6 s ở bản mới rồi
-55,4 s ở một lần khác — chênh lệch 16% giữa hai lần chạy cùng một code, tức đủ lớn để nuốt
-trọn hiệu ứng cần đo. Ghi cả khoảng giá trị chứ không chỉ một con số:
-
-| Tài liệu | Trước | Sau | Chênh (trung vị) |
-|---|---:|---:|---:|
-| Bishop — trung vị 3 lần | 58,8 s | **48,3 s** | **−17,9%** |
-| Bishop — khoảng (min–max) | 53,8–59,9 s | **48,0–50,7 s** | hai khoảng **không chồng lấn** |
-| 8 tài liệu trộn (4 PDF + 2 DOCX + 2 PPTX), 1 lần | 6,62 s | **6,16 s** | −7,0% |
-
-Hai khoảng không chồng lấn (lần chậm nhất của bản mới vẫn nhanh hơn lần nhanh nhất của bản
-cũ) là căn cứ để nói chênh lệch này có thật chứ không phải nhiễu.
-
-Khoản tiết kiệm đến từ ba chỗ, không chỗ nào là "làm ít việc hơn": bỏ lượt duyệt PDF thứ hai
-(trước đây `trich_anh_pdf` mở lại cả file và gọi `extract_text()` lần nữa cho từng trang), bỏ
-lượt `bang.extract()` thừa cho mỗi bảng, và hiệu chỉnh `x_tolerance` theo tài liệu thay vì dò
-lại 4 mức trên **mọi** trang dính chữ.
-
-**Nội dung sinh ra: không mất gì, và tốt lên ở chỗ đo được**
-
-| | Trước | Sau |
-|---|---:|---:|
-| Bản ghi từ Bishop | 809 | **809** |
-| Bản ghi văn bản (8 tài liệu trộn) | 372 | **372** |
-| Độ dính chữ trung bình mỗi trang (Bishop) | 0,0026 | **0,0026** |
-| Số trang Bishop mà bản mới dính chữ **hơn** bản cũ | — | **0** |
-
-540/728 trang Bishop CÓ NỘI DUNG (758 trang PDF, 30 trang rỗng hoặc mục lục bị loại) có khác
-biệt, và mọi khác biệt đều nghiêng về phía bản mới —
-phép hiệu chỉnh `x_tolerance` theo tài liệu chọn được mức tách từ tốt hơn:
-
-```
-CŨ : p(X = xi,Y = yj)      lnp(D|α,β)      where i = 1,...,D
-MỚI: p(X = xi, Y = yj)     ln p(D|α, β)    where i = 1, . . . , D
-```
-
-Trên `PaperQA.pdf`, ba trang mà bản cũ để lọt chữ dính (`encoders[19,64],whicharetrained…`)
-nay được tách đúng. Ghi lại vì đây **không phải mục tiêu** của đợt tối ưu — nó là hệ quả phụ
-của việc đổi thứ tự thử tham số, và chỉ phát hiện được nhờ so từng bản ghi.
-
-> **Một hồi quy đã suýt lọt.** Bản đầu của phép dừng sớm dùng chung ngưỡng
-> `TY_LE_DINH_CHU_DE_DOC_LAI = 0,10` cho hai câu hỏi khác nhau: *"trang này có đáng đọc lại
-> không"* và *"bản đọc lại đã đủ tốt chưa"*. Nó chấp nhận ngay mức đầu tiên hạ độ dính từ 30%
-> xuống 9%, để lọt `RAGmodelsretrievetextfromacorpus` vào index. Sửa bằng ngưỡng riêng
-> `TY_LE_DINH_CHU_DAT_YEU_CAU = 0,02`, lấy từ chính số đo cũ (PDF đọc tốt: 0,0–1,5%; trang
-> hỏng: 41,7%). Chi tiết: ARCHITECTURE.md §5.66.
-
-**Lọc ảnh: bớt vector rác, không đụng tới văn bản**
-
-| Tài liệu | Bản ghi ảnh trước | sau | Bản ghi văn bản (trước → sau) |
-|---|---:|---:|---:|
-| Chapter 1. Introduction to IoT.pptx | 401 | **261** | 228 → 228 |
-| Bai1-TongQuanDuLieu.docx | 219 | **168** | 7 → 7 |
-| Bai3-GomCum.docx | 75 | **61** | 4 → 4 |
-| NHÓM 6 - LUẬT HÌNH SỰ.pptx | 18 | **13** | 51 → 51 |
-| 4 file PDF trong bộ đo | 21 | **21** | không đổi |
-
-Cột cuối là điều quan trọng nhất: **không một bản ghi văn bản nào bị mất**. Phần bị loại là
-icon, logo góc trang, dải trang trí và hình lặp lại kiểu watermark — mỗi cái trước đây tốn một
-lượt render, một file trên đĩa, một lượt gọi model vision (~1,9 s) và một vector trong index.
-PDF không giảm bản ghi ảnh nào, đúng như dự đoán: bộ lọc nhắm vào thứ mà slide và tài liệu
-Word hay chèn, không phải hình trong PDF học thuật.
-
-**Gọi OCR song song** — đo trên 8 trang Bishop thật sự cần OCR (trang 305–316), cùng một tập
-trang, cache rỗng ở mỗi lần đo, `qwen2.5vl:3b` chạy trên GPU:
-
-| Cấu hình | Tổng | Mỗi trang | So với tuần tự |
-|---|---:|---:|---:|
-| `SO_WORKER_VISION=1` (hành vi cũ) | 262,9 s | 32,9 s | — |
-| `SO_WORKER_VISION=4` | **106,4 s** | **13,3 s** | **nhanh 2,47×** |
-| Cache đầy (lần build thứ hai) | **0,07 s** | — | **~3.750×** |
-
-Con số 32,9 giây/trang giải thích vì sao đây là bước đắt nhất của cả luồng: một cuốn sách có
-vài trăm trang hỏng font sẽ mất hàng giờ ở bản cũ. Mức tăng tốc 2,47× (không phải 4×) là hợp
-lý — mọi luồng đều xếp hàng qua **một** máy chủ Ollama, phần song song hoá được chỉ là thời
-gian chờ mạng và phần nạp/xả giữa các lượt.
-
-**Cache tài liệu — lần đọc thứ hai**
-
-| | Lần 1 (cache rỗng) | Lần 2 (cache đầy) |
-|---|---:|---:|
-| `CV-01-Introduction.pdf` (14 trang, 8 ảnh) | 0,76 s | **0,01 s** |
-
-Đây mới là con số nói đúng trải nghiệm hằng ngày: thêm một tài liệu vào corpus 25 file không
-còn nghĩa là trả lại chi phí của 25 file kia. Cùng với index tăng dần, 25 tài liệu không đổi
-được giữ nguyên vector và không đi qua bất kỳ bước nào của luồng Ingestion.
-
-**Chưa đo được** (ghi ra để không ai tưởng đã đo đủ):
-
-- **Chi phí lần build đầu của TOÀN BỘ corpus 26 tài liệu với OCR bật.** Phép đo này bị dừng
-  giữa chừng vì riêng Bishop đã cần OCR hàng trăm trang ở 32,9 s/trang — tức nhiều giờ cho
-  một lần đo. Các con số ở trên đo trên từng phần, và mức tiết kiệm của mỗi phần thì đo được
-  riêng rẽ.
-- **Ảnh hưởng của lọc ảnh lên Recall@K.** Việc bỏ 140 bản ghi logo *nên* cải thiện độ chính
-  xác (bớt vector rác cạnh tranh suất TOP_K), nhưng chưa chạy lại `run_evaluation.py` trên
-  index mới nên chưa được nói đó là một cải thiện.
-- **Mức lợi thật của ngân sách thích ứng lúc truy vấn** (§5.67): số ứng viên rerank giảm
-  30 → 12 cho câu hỏi đơn giản, nhưng chưa đo độ trễ trước/sau trên bộ câu hỏi thật.
+Mọi con số chỉ đúng cho máy đã chạy phép đo. Cách tái lập nằm ở cuối mỗi tiểu mục.
 
 ---
 
-## 8. Những gì chưa đo được
+### 8.1 Phần cứng và cách hệ thống tự phân bổ
+
+| Hạng mục | Giá trị |
+|---|---|
+| GPU | NVIDIA GeForce RTX 5060 · 7,96 GB VRAM · compute capability 12.0 |
+| CPU | Intel Core i5-14600KF — 20 luồng |
+| `torch` | 2.13.0+cu130 — **CUDA 13.0 khả dụng** |
+| Python | 3.14.2 |
+
+Hệ thống **tự dò phần cứng** rồi tự phân bổ; không có tham số nào phải đặt bằng tay:
+
+```
+Phần cứng: NVIDIA GeForce RTX 5060 (8.0 GB VRAM) · CPU 20 nhân
+           · embedding=cpu · rerank=cuda · batch embedding=64
+```
+
+Cách phân bổ đó không phải mặc định "có GPU thì dùng GPU" — nó là kết quả của bài toán VRAM
+ở §8.4. Trên máy có card lớn hơn, dòng này sẽ tự in ra `embedding=cuda`.
+
+---
+
+### 8.2 GPU nhanh hơn CPU bao nhiêu
+
+Cùng khối lượng công việc, model đã nạp sẵn, lấy trung vị 3–5 lần chạy:
+
+| Bước | CPU | GPU | Nhanh hơn |
+|---|---:|---:|---:|
+| Embedding 512 chunk | 19,90 s | **1,55 s** | **12,8×** |
+| Embedding, thông lượng | 26 chunk/s | **330 chunk/s** | 12,7× |
+| Rerank 30 cặp | 4,36 s | **1,18 s** | 3,7× |
+| Rerank 12 cặp (câu hỏi đơn giản) | 1,68 s | **0,15 s** | **11,2×** |
+| **Truy xuất đầu-cuối, 6 câu hỏi** | **15,21 s** | **1,69 s** | **9,0×** |
+
+Reranker là chỗ đáng đưa lên GPU nhất, và **không phải vì nó nặng nhất** mà vì nó nằm trên
+đường đi của MỌI câu hỏi: người dùng chờ nó xong mới thấy chữ đầu tiên.
+
+**Mã hoá MỘT câu hỏi thì lại là chuyện khác** — và con số này quyết định cách phân bổ ở §8.4:
+
+| Thiết bị | 1 câu | 3 câu | VRAM model |
+|---|---:|---:|---:|
+| CPU | 20,3 ms | 28,4 ms | 0 |
+| GPU | 6,1 ms | 7,7 ms | 1,12 GB |
+
+Ở quy mô 1–3 chuỗi ngắn, GPU chỉ nhanh hơn **14 mili giây** — một con số không ai cảm nhận
+được bên cạnh câu trả lời dài hàng chục giây, nhưng cái giá là 1,12 GB VRAM.
+
+---
+
+### 8.3 Batch size: một phép đo lật ngược trực giác
+
+"Có GPU thì cứ tăng batch lên cho nhanh" **sai** trên máy này. Đo với 768 chunk:
+
+| batch | chunk/s | VRAM đỉnh |
+|---:|---:|---:|
+| 16 | 320 | 1,21 GB |
+| 32 | **326** | 1,31 GB |
+| 64 | 325 | 1,52 GB |
+| 128 | 325 | 1,92 GB |
+| 256 | 324 | 2,80 GB |
+
+Thông lượng **đứng yên** trong khoảng 320–326 chunk/s trên toàn dải, trong khi VRAM đỉnh tăng
+hơn gấp đôi. Nút thắt không nằm ở độ song song của lô, nên batch lớn chỉ mua thêm rủi ro tràn
+VRAM mà không mua được tốc độ.
+
+Vì vậy `tai_nguyen_gpu.kich_thuoc_lo_embedding()` chỉ dùng VRAM còn trống để **hạ** batch khi
+máy chật, không bao giờ nâng lên để "tận dụng GPU".
+
+---
+
+### 8.4 VRAM: vì sao embedding chạy CPU còn reranker chạy GPU
+
+Ba model của giai đoạn truy vấn cộng lại **không vừa** card 8 GB. Con số đo bằng `nvidia-smi`
+và `/api/ps` của Ollama:
+
+| Model | VRAM |
+|---|---:|
+| qwen3:4b (num_ctx 16384) | 4,75 GB |
+| bge-reranker-v2-m3 | 2,20 GB |
+| multilingual-e5-base | 1,12 GB |
+| **Tổng** | **8,07 GB** > 7,96 GB của card |
+
+Tràn VRAM **không báo lỗi**: driver âm thầm đẩy phần thừa sang RAM hệ thống, hoặc Ollama
+nạp/nhả model liên tục. Quan sát được khi để cả ba trên GPU: VRAM còn trống tụt xuống **288
+MB**, model reranker mất ~58 giây mới nạp xong, và lượt hỏi đầu tiên báo **50,8 giây** cho
+bước truy xuất. Không một dòng lỗi nào.
+
+**Cách phân bổ**, dựa trên một sự thật về luồng sử dụng chứ không về phần cứng — người dùng
+bấm "Đọc tài liệu" rồi mới hỏi, nên hai giai đoạn không bao giờ chạy đồng thời:
+
+```
+INGESTION  →  Vision/OCR + embedding(GPU)      ← lô hàng nghìn chunk, GPU thắng 12,8×
+    ↓ nhả model vision (keep_alive=0), dọn bộ đệm CUDA
+    ↓ card chật → chuyển embedding sang CPU
+QUERY      →  reranker(GPU) + LLM(GPU)         ← rerank nằm trên đường đi mọi câu hỏi
+```
+
+Thứ bị đẩy xuống CPU là **embedding**, vì ở giai đoạn truy vấn nó chỉ mã hoá 1–3 chuỗi ngắn
+(§8.2: chênh 14 ms), còn reranker chấm vài chục cặp mỗi câu. VRAM đo được qua từng bước:
+
+| Thời điểm | PyTorch giữ | VRAM còn trống |
+|---|---:|---:|
+| Ingestion vừa kết thúc | 2,78 GB | 0,79 GB |
+| Sau khi nhả vision + dọn bộ đệm CUDA | 1,13 GB | 5,70 GB |
+| Sau khi chuyển embedding sang CPU | **0,04 GB** | **6,79 GB** |
+
+**Trạng thái MẶC ĐỊNH là trạng thái của giai đoạn query**, không phải của ingestion. Lý do:
+phần lớn phiên làm việc không bắt đầu bằng "Đọc tài liệu" mà bằng việc mở app lên hỏi ngay
+trên index đã có — lúc đó bước chuyển giai đoạn chưa hề chạy. Ingestion thì luôn đi qua
+`bat_dau_ingestion()` nên tự nâng embedding lên GPU đúng lúc cần.
+
+Ngưỡng quyết định là `VRAM_DU_GIU_EMBEDDING_TREN_GPU_GB` (mặc định 10 GB), tính theo **tổng**
+VRAM chứ không phải phần còn trống — quyết định phải ổn định cho cả phiên, mà phần còn trống
+thì dao động theo việc Ollama vừa nạp hay vừa nhả model. Card lớn hơn ngưỡng giữ tất cả trên
+GPU, không phải đánh đổi gì.
+
+---
+
+### 8.5 Số worker cho OCR/Vision
+
+Đo bằng `python evaluation/do_worker_gpu.py`, OCR 6 trang thật sự cần OCR của giáo trình
+Bishop, cache rỗng ở mỗi mức:
+
+| Worker | Tổng | Mỗi trang | Nhanh hơn | GPU util TB | VRAM đỉnh |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 49,4 s | 8,2 s | 1,00× | 84% | 4,95 GB |
+| **2** | **31,9 s** | **5,3 s** | **1,55×** | 93% | 4,95 GB |
+| 4 | 32,0 s | 5,3 s | 1,54× | 92% | 4,95 GB |
+
+Cột GPU utilization giải thích tất cả: **GPU đã bão hoà 84% ngay từ MỘT worker**, nên gần như
+không còn thời gian rảnh để lấp. 1→2 worker lợi 1,55×; **2→4 không lợi gì** (chênh 0,1 s, nằm
+trong nhiễu) mà chỉ tăng rủi ro tranh VRAM với LLM ở giai đoạn sau.
+
+Vì vậy `SO_WORKER_VISION` mặc định **2**. Con số này khác nhau trên mỗi máy — script tự đề
+xuất giá trị cho máy đang chạy.
+
+---
+
+### 8.6 Ingestion đầu-cuối
+
+Đo bằng `python evaluation/do_dau_cuoi.py`, tính từ lúc đưa tài liệu vào tới lúc index sẵn
+sàng để hỏi — gồm cả đọc tài liệu, chunk, embedding và ghi index xuống đĩa.
+
+**Corpus 1 tài liệu (RAGTiengViet.pdf · 16 bản ghi · 108 chunk):**
+
+| Kịch bản | Tổng | Chi tiết |
+|---|---:|---|
+| Cache **rỗng** (lần đầu) | 4,73 s | đọc tài liệu 1,28 s · embedding 0,59 s · chunking 0,07 s |
+| Cache **đầy** (bấm lại) | **2,62 s** | mọi bước đọc và encode đều trúng cache |
+
+**Corpus 3 tài liệu nhiều hình (460 bản ghi · 1209 chunk):**
+
+| Kịch bản | Tổng | Chi tiết |
+|---|---:|---|
+| Cache **rỗng** (lần đầu) | 281,72 s | chú thích ảnh 253,00 s · đọc text 11,99 s · embedding 7,48 s |
+| Cache **đầy** (bấm lại) | **3,48 s** | **nhanh hơn 81×** |
+
+Cache đánh khoá theo **băm nội dung**, nên lần bấm thứ hai không đọc lại tài liệu nào và
+không encode lại chunk nào — kể cả khi corpus có hàng nghìn chunk.
+
+**Bảng thứ hai mới là bảng nói lên thứ tự ưu tiên tối ưu.** Với tài liệu nhiều hình,
+**89,8% chi phí lần đầu nằm ở bước chú thích ảnh bằng model vision**; embedding — thứ vừa
+được đưa lên GPU — chỉ còn chiếm 2,7%, và đọc text chiếm 4,3%. Mọi nỗ lực tối ưu không nhắm
+vào ô 89,8% đó đều là tối ưu nhầm chỗ.
+
+Với tài liệu ÍT hình (bảng đầu) thì bức tranh đảo lại: không có bước vision nào, và chi phí
+chia đều giữa đọc text và embedding. Đây là lý do bảng này phải có hai dòng corpus chứ không
+phải một — "chỗ nào tốn nhất" phụ thuộc vào loại tài liệu, không phải vào hệ thống.
+
+---
+
+### 8.7 Query đầu-cuối
+
+Đo trên index 108 chunk, 5 câu hỏi, có gọi LLM:
+
+| Hạng mục | Giá trị |
+|---|---:|
+| Câu hỏi ĐẦU TIÊN (gồm Ollama nạp LLM) | 36,89 s |
+| Các câu sau, tổng | trung vị 35,33 s (min 24,43 · max 52,06) |
+| — **truy xuất** | **trung vị 0,45 s** (min 0,40 · max 0,60) |
+| — tới chữ trả lời đầu tiên | trung vị 33,85 s |
+
+Chi tiết bước truy xuất, trung bình mỗi câu:
+
+| Bước | Thời gian |
+|---|---:|
+| rerank (cross-encoder, GPU) | 0,452 s |
+| mã hoá câu hỏi (CPU) | 0,022 s |
+| dense + BM25 + RRF (FAISS) | < 0,001 s |
+
+**Kết luận quan trọng nhất của cả mục 8:** truy xuất **không còn là nút thắt**. Nó chiếm
+khoảng **1,3%** thời gian mỗi câu hỏi. Gần như toàn bộ phần còn lại là LLM sinh chữ, mà phần
+lớn trong đó là chuỗi suy luận nội bộ của qwen3 (đo được 1.261–7.232 token mỗi câu).
+
+---
+
+### 8.8 Nhanh hơn có làm kém chính xác đi không? — Không
+
+Đây là câu hỏi bắt buộc phải trả lời bằng số, vì "nhanh hơn nhưng kết quả khác đi" là một
+cách thất bại chứ không phải một cách tối ưu.
+
+Chạy **cùng 6 câu hỏi** trên **cùng một index**, một lần ép `cpu` một lần ép `cuda`, rồi so
+từng đoạn trích trả về:
+
+| | CPU | GPU |
+|---|---:|---:|
+| Tổng thời gian 6 câu | 15,21 s | **1,69 s** |
+| Số câu cho kết quả **giống hệt** (đoạn + thứ tự) | — | **6/6** |
+| Lệch điểm similarity tối đa | — | **2,38 × 10⁻⁷** |
+
+Sai khác cỡ 10⁻⁷ là sai số làm tròn của float32, không phải khác biệt về nội dung: không đoạn
+nào bị đổi, không thứ hạng nào bị đảo. Nhờ vậy các số chất lượng đo ở §4 và §5 vẫn còn hiệu
+lực mà không phải chạy lại toàn bộ.
+
+---
+
+### 8.9 Trần token sinh: một lỗi đã gặp và cách sửa
+
+Ghi lại vì nó là lỗi **người dùng nhìn thấy trực tiếp**, và vì cách chẩn đoán nó có giá trị
+hơn bản thân bản vá.
+
+**Triệu chứng:** câu trả lời đứt giữa chừng, kết thúc bằng chữ "và".
+
+**Nguyên nhân:** hệ thống từng hạ `num_predict` xuống 3000 cho câu hỏi được xếp là "đơn giản"
+(dưới 12 từ), với lập luận "câu trả lời có trích dẫn hiếm khi vượt 1000 token". Lập luận đó
+sai ở chỗ căn bản: **`num_predict` giới hạn suy luận + câu trả lời CỘNG LẠI**, mà riêng chuỗi
+suy luận của qwen3 đã ngốn 2.000–4.000 token. Suy luận không phải phần phụ cần chừa "dư địa" —
+nó là phần chiếm chỗ chính.
+
+Đo trên đúng câu hỏi gây lỗi (9 từ, nên bị xếp là đơn giản):
+
+| `num_predict` | Token sinh | Câu trả lời | Kết quả |
+|---:|---:|---:|---|
+| 3000 | 2978 | 569 ký tự | **đứt giữa câu** |
+| 12000 | 3948 | 1012 ký tự | đầy đủ, có trích dẫn |
+
+**Cách sửa: gỡ bỏ hẳn tham số đó**, không phải nâng ngưỡng. Hai lý do:
+
+1. Độ dài suy luận **không tương quan** với độ dài câu hỏi — đo được 1.261 tới 7.232 token
+   cho những câu hỏi dài tương đương nhau. Không tồn tại một ngưỡng theo số từ nào an toàn.
+2. Khoản lợi vốn dĩ bằng **không**: `_tinh_num_ctx()` giữ chỗ
+   `min(OLLAMA_DU_PHONG_TOKEN_SINH = 4000, num_predict)`, nên mọi giá trị từ 4000 trở lên cho
+   ra cùng một `num_ctx`. Muốn tiết kiệm được gì thì phải xuống dưới 4000 — tức đúng vùng gây
+   cắt cụt.
+
+Tham số này chỉ "có lợi" khi nó không an toàn, nên nó không còn tồn tại. Phần ngân sách thích
+ứng còn lại (`SO_UNG_VIEN_RERANK_DON_GIAN`: 12 ứng viên thay vì 30 cho câu hỏi ngắn) thì vẫn
+giữ — nó tiết kiệm thật và không cắt gì của ai. Hai test khoá lại hồi quy này.
+
+---
+
+### 8.10 Cách tái lập
+
+```bash
+python evaluation/do_worker_gpu.py                 # số worker OCR/Vision tối ưu cho máy bạn
+python evaluation/do_dau_cuoi.py                   # ingestion + query đầu-cuối
+python evaluation/do_dau_cuoi.py --chi query       # chỉ đo phía truy vấn
+python evaluation/do_dau_cuoi.py --khong-llm       # chỉ truy xuất, không gọi LLM
+```
+
+Cả hai script dựng cache và index **trong thư mục tạm rồi xoá đi** — không đụng tới
+`data/raw`, `data/faiss_index` hay `data/cache` của bạn.
+
+---
+
+### 8.11 Những gì mục này KHÔNG đo
+
+Ghi ra để không ai đọc bảng số ở trên rồi tưởng đã đo đủ:
+
+- **Recall/MRR/Faithfulness/Citation accuracy trên corpus hiện tại.** Bộ câu hỏi kiểm thử
+  (`test_questions.json`) viết cho corpus 26 tài liệu ở `TaiLieuTest/`, trong khi corpus đang
+  dùng là một tài liệu khác — chạy sẽ ra những con số trông như thật nhưng không so được với
+  gì. §8.8 là bằng chứng thay thế **cho đúng câu hỏi đang cần trả lời** (phần cứng không đổi
+  kết quả truy xuất), chứ không thay thế được một lần đo chất lượng đầy đủ.
+- **Chi phí ingestion của toàn bộ một corpus lớn (26 tài liệu).** §8.6 đo trên 1 và 3 tài
+  liệu; ngoại suy tuyến tính từ đó là không an toàn vì tỉ lệ hình/chữ rất khác nhau giữa các
+  tài liệu.
+- **Thời gian sinh câu trả lời**, hiện chiếm khoảng 98% mỗi lượt hỏi. Đường khả dĩ duy nhất
+  còn lại là dùng model không sinh suy luận — nhưng đó là đánh đổi chất lượng, phải đo
+  Faithfulness và Citation accuracy trước khi chốt.
+
+---
+
+## 9. Những gì chưa đo được
 
 Ghi ra để không ai đọc báo cáo rồi tưởng đã đo đủ:
 
@@ -694,7 +875,7 @@ Ghi ra để không ai đọc báo cáo rồi tưởng đã đo đủ:
 
 ---
 
-## 9. Cách tái lập
+## 10. Cách tái lập
 
 ```bash
 # 1. Đưa tài liệu vào data/raw rồi build index (qua UI hoặc nút "Đọc tài liệu")
@@ -721,7 +902,7 @@ Bật `LOG_PHAN_BO_DIEM=1` trong `.env` để in phân bố điểm từng lư�
 
 ---
 
-## 10. Đối chiếu với tài liệu kiến trúc
+## 11. Đối chiếu với tài liệu kiến trúc
 
 | Nội dung | Mục |
 |---|---|

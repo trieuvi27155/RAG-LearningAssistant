@@ -47,6 +47,10 @@ backend API riêng:
 `bo_nho_dem` (cache theo băm nội dung) và `do_thoi_gian` (profiling) chỉ phục vụ luồng
 Ingestion và **không** nằm trên đường đi của một câu hỏi — độ trễ lúc hỏi không đổi vì chúng.
 
+`rag/tai_nguyen_gpu.py` thì cắt ngang CẢ HAI luồng: nó quyết định embedding và reranker
+chạy trên GPU hay CPU, batch size bao nhiêu, mấy worker vision — tất cả suy từ phần cứng
+của máy đang chạy — và nhả model vision khỏi VRAM ở ranh giới giữa hai giai đoạn (§5.68).
+
 **Nguyên tắc cốt lõi:** hai luồng độc lập về thời điểm chạy nhưng dùng **chung 1 instance**
 `EmbeddingService` và `VectorStore`. Bắt buộc dùng chung model embedding — nếu không, vector
 câu hỏi và vector tài liệu nằm ở hai không gian khác nhau và cosine similarity vô nghĩa.
@@ -78,6 +82,8 @@ data/raw/*.pdf|*.pptx|*.docx
    │  encode_co_cache()            → np.ndarray (n, 768) float32, đã chuẩn hoá
    │                                 (chỉ encode chunk chưa có trong cache embedding)
    │  VectorStore.them() → .luu()   (ghi kèm sổ băm tài liệu)
+   │  tai_nguyen_gpu.ket_thuc_ingestion(): nhả model vision khỏi VRAM, dọn bộ đệm CUDA
+   │     → chuyển sang giai đoạn QUERY (§5.68)
    ▼
 data/faiss_index/  index.faiss · metadata.pkl · index_info.json ("vân tay" cấu hình, §5.20)
 data/cache/        tai_lieu/ · ocr/ · vision/ · embedding/  (khoá theo BĂM NỘI DUNG, §5.66)
@@ -171,6 +177,21 @@ nuốt kèm log: cache hỏng chỉ được phép làm hệ thống chậm lạ
 | `KhoVectorDem` / `encode_co_cache` | cache embedding trong MỘT file `.npz`, chỉ encode chunk mới |
 | `dung_luong_cache()` / `xoa_cache()` | cho giao diện nói được con số thật khi mời xoá |
 
+### `rag/tai_nguyen_gpu.py`
+Dò phần cứng và quản lý VRAM theo giai đoạn (§5.68). Không có GPU thì mọi hàm ở đây thành
+không-làm-gì chứ không ném lỗi — máy chỉ có CPU phải chạy được đầy đủ.
+
+| Hàm | Vai trò |
+|---|---|
+| `co_cuda()` | máy có GPU dùng được cho PyTorch không (nuốt mọi lỗi driver/DLL) |
+| `thiet_bi("embedding")` / `("rerank")` | "cuda"/"cpu", ép riêng từng vai trò qua cấu hình |
+| `kich_thuoc_lo_embedding()` | batch encode suy từ VRAM **còn trống**, chặn trên bởi cấu hình |
+| `so_worker_vision()` | min(trần cấu hình, số nhân CPU, VRAM còn trống) |
+| `vram()` / `tong_vram_gb()` / `vram_con_trong_gb()` | số liệu VRAM cho quyết định và log |
+| `mo_ta_phan_cung()` | một dòng nói rõ đang chạy GPU hay CPU — chống lại đúng lỗi ở §5.68 |
+| `nha_model_ollama(ten)` | bảo Ollama nhả model khỏi VRAM ngay (`keep_alive=0`) |
+| `ket_thuc_ingestion()` | ranh giới giai đoạn: nhả vision + dọn bộ đệm CUDA |
+
 ### `rag/do_thoi_gian.py`
 Đo thời gian từng bước Ingestion và in bảng tổng kết sau mỗi lần build. Bộ đếm là biến
 module (một tiến trình = một lần build) và có `Lock` vì Vision/OCR chạy trên nhiều thread.
@@ -188,7 +209,8 @@ Recursive Character Splitting, đo bằng **tokenizer thật của model** (tikt
 `vi_tri` = thứ tự chunk trong trang gốc, dùng để `rag_pipeline` mở rộng ngữ cảnh đúng thứ tự.
 
 ### `rag/embedding.py` — `EmbeddingService`
-Wrapper `sentence-transformers`. **Không có** hàm `encode()` dùng chung: chỉ có
+Wrapper `sentence-transformers`, chạy trên GPU nếu máy có (§5.68). **Không có** hàm
+`encode()` dùng chung: chỉ có
 `encode_cau_hoi()` (tiền tố `query: `) và `encode_tai_lieu()` (tiền tố `passage: `) — model
 họ E5 huấn luyện bất đối xứng, thiếu tiền tố thì chất lượng tụt âm thầm (§5.19).
 Ngoài ra: `.dimension` (768), `.max_seq_length` (512), `.dem_token()`, `.lay_ham_dem_token()`.
@@ -198,7 +220,9 @@ BM25 tự cài (~60 dòng). `_tach_tu()` lập chỉ mục **cả âm tiết đ�
 thuật ngữ tiếng Việt mà không cần thư viện tách từ (§5.21). Mặc định TẮT (§5.30).
 
 ### `rag/reranker.py` — `RerankerService`
-Cross-encoder (~2.2GB) đọc cả cặp (câu hỏi, đoạn). `.xep_hang(cau_hoi, cac_doan)` → mảng
+Cross-encoder (~2.2GB) đọc cả cặp (câu hỏi, đoạn), chạy trên GPU nếu máy có — đây là model
+đáng đưa lên GPU nhất vì nó nằm trên đường đi của MỌI câu hỏi (§5.68).
+`.xep_hang(cau_hoi, cac_doan)`
 điểm song song với `cac_doan`, chưa sắp xếp. Điểm này còn dùng cho ngưỡng từ chối (§5.29).
 
 ### `rag/image_extractor.py`
@@ -305,6 +329,8 @@ Uploader đổi `key` sau mỗi lần xử lý để nút xoá và uploader khô
 | `run_evaluation.py` | nạp `test_questions.json` → chạy pipeline → in bảng + xuất `ket_qua_danh_gia.csv`; dừng hẳn nếu index không khớp cấu hình |
 | `kiem_dinh_judge.py` | đo độ tin cậy của CHÍNH thước đo Faithfulness trên 7 ca đã biết đáp án |
 | `do_nguong_rerank.py` | đo xem điểm rerank có tách được câu lạc đề không (§5.29) |
+| `do_worker_gpu.py` | đo số worker OCR/Vision tối ưu trên máy hiện tại, kèm GPU util + VRAM (§5.68) |
+| `do_dau_cuoi.py` | đo ĐẦU-CUỐI: nạp tài liệu → hỏi được, và hỏi → trả lời xong (§5.68) |
 | `do_quy_mo_index.py` | đo ngưỡng quy mô FAISS: Flat vs IVF vs HNSW (§5.44) |
 | `tao_tai_lieu_mau.py` | sinh bộ tài liệu ĐỘC LẬP để chống overfitting (§5.45) |
 | `kiem_dinh_viet_lai.py` | đo tầng nhận diện câu nối tiếp + ảnh hưởng THẬT lên truy xuất (§5.58) |
@@ -1909,6 +1935,168 @@ hiệu chỉnh trên đó (§5.61, §5.64). Hạ nó cho "câu hỏi đơn giả
 (ứng viên rerank, `num_predict`, nén ngữ cảnh) đều không đụng tới tập đoạn trích được chọn
 trong trường hợp bình thường. Khi nào có phép đo Recall@K theo từng nhóm độ phức tạp thì đây
 là việc tiếp theo đáng làm.
+
+---
+
+
+### 5.68 GPU: một cấu hình sai không ai nhìn thấy, và cách chia VRAM giữa bốn model
+
+**Lỗi gốc không nằm trong code.** Máy làm đồ án có RTX 5060 8 GB, nhưng `pip install
+sentence-transformers` kéo về `torch` bản **CPU-only** — đó là bản mặc định trên PyPI. Hệ quả:
+GPU chỉ phục vụ Ollama (LLM và vision), còn embedding và cross-encoder rerank chạy hoàn toàn
+trên CPU. Không exception, không cảnh báo, kết quả trả về vẫn đúng từng chữ. Triệu chứng duy
+nhất là phần truy xuất tốn 11–12 giây mỗi câu — một con số hoàn toàn có thể bị đọc nhầm thành
+"cross-encoder vốn đắt như vậy".
+
+Đây là biến thể mới của đúng loại lỗi mà §5.20 và §5.60 đã gặp: **hệ thống chạy đúng nhưng
+chạy sai điều kiện, và không có gì trong chính hệ thống nói ra điều đó**. Cách chữa cũng cùng
+một kiểu — bắt nó phải tự khai báo (`tai_nguyen_gpu.mo_ta_phan_cung()` ghi ra log và hiện trên
+thanh bên), thay vì trông vào việc ai đó nhớ kiểm tra.
+
+Sửa bằng một lệnh, giữ NGUYÊN phiên bản torch để không đụng tương thích với
+`sentence-transformers` và `faiss`:
+
+```
+pip install "torch==2.13.0+cu130" --index-url https://download.pytorch.org/whl/cu130
+```
+
+| Bước | CPU | GPU | Nhanh hơn |
+|---|---:|---:|---:|
+| Embedding 512 chunk | 19,90 s | 1,55 s | **12,8×** |
+| Rerank 12 cặp | 1,68 s | 0,15 s | **11,2×** |
+| Truy xuất đầu-cuối, 6 câu | 15,21 s | 1,69 s | **9,0×** |
+
+**Reranker là chỗ đáng giá nhất, và không phải vì nó nặng nhất** mà vì nó nằm trên đường đi
+của mọi câu hỏi: người dùng chờ nó xong mới thấy chữ đầu tiên.
+
+**Bằng chứng bắt buộc: nhanh hơn mà không đổi kết quả.** "Nhanh hơn nhưng ra kết quả khác" là
+một cách thất bại chứ không phải một cách tối ưu, nên điều này phải được chứng minh chứ không
+phải giả định. Chạy cùng 6 câu hỏi trên cùng index, một lần ép `cpu` một lần ép `cuda`:
+**6/6 câu trả về đúng những đoạn đó, đúng thứ tự đó**, lệch điểm similarity tối đa 1,79×10⁻⁷ —
+sai số làm tròn float32. Nhờ vậy mọi số chất lượng đã đo trước đây (§4, §5) vẫn còn hiệu lực
+mà không phải chạy lại toàn bộ.
+
+**HARDWARE-AWARE, KHÔNG PHẢI RTX-5060-AWARE.** Mọi tham số đều suy từ thứ máy tự báo cáo, vì
+một hằng số hợp với card 8 GB sẽ vừa phí trên card 24 GB vừa gây tràn trên card 4 GB:
+
+| Tham số | Suy từ đâu |
+|---|---|
+| `thiet_bi("embedding")` / `("rerank")` | `torch.cuda.is_available()`, có thể ép riêng từng vai trò |
+| `kich_thuoc_lo_embedding()` | VRAM **còn trống**, chặn trên bởi `EMBEDDING_BATCH_SIZE` |
+| `so_worker_vision()` | min(trần cấu hình, số nhân CPU, VRAM còn trống) |
+
+Tách RIÊNG hai vai trò embedding và rerank thay vì một công tắc chung là có chủ đích: chúng có
+hồ sơ tài nguyên khác hẳn nhau (một chạy lô lớn lúc build, một chạy vài chục cặp mỗi câu hỏi
+và phải chia VRAM với LLM), nên trên card nhỏ, cấu hình hợp lý có thể là embedding GPU +
+rerank CPU. Điều đó chỉ nói được nếu hai vai trò tách riêng.
+
+**Một phép đo lật ngược trực giác.** "Có GPU thì cứ tăng batch cho nhanh" là sai ở đây:
+
+| batch | chunk/s | VRAM đỉnh |
+|---:|---:|---:|
+| 16 | 329 | 1,21 GB |
+| 32 | 339 | 1,31 GB |
+| 128 | 337 | 1,92 GB |
+| 256 | **287** | 2,80 GB |
+
+Thông lượng đứng yên từ 16 tới 128 rồi **tụt** ở 256, trong khi VRAM tăng đều — nút thắt không
+nằm ở độ song song của lô. Vì vậy hàm chọn batch chỉ dùng VRAM để **hạ** batch khi máy chật,
+không bao giờ nâng lên để "tận dụng GPU". Cùng một logic áp cho số worker: đo lại trên máy
+rảnh cho thấy **GPU đã bão hoà 84% ngay từ MỘT worker**, nên 2→4 worker không lợi gì và
+`SO_WORKER_VISION` mặc định đã đổi từ 4 xuống 2 (§8.5).
+
+**CHIA GIAI ĐOẠN — và bằng chứng nó cần thật.** Riêng ba model của giai đoạn truy vấn đã là
+8,07 GB (LLM 4,75 + reranker 2,20 + embedding 1,12), không vừa card 7,96 GB — chưa tính model
+vision của giai đoạn ingestion. Tràn VRAM **không báo lỗi**:
+driver âm thầm đẩy phần thừa sang RAM hệ thống, hoặc Ollama nạp/nhả model liên tục giữa các
+lượt gọi — chậm hơn cả chạy thuần CPU.
+
+Cách chia dựa trên một sự thật về LUỒNG SỬ DỤNG chứ không phải về phần cứng: người dùng bấm
+"Đọc tài liệu" rồi mới hỏi, nên hai giai đoạn không bao giờ chạy đồng thời.
+
+```
+INGESTION  ->  Vision/OCR + embedding
+   │  ket_thuc_ingestion(): nhả model vision (keep_alive=0) + dọn bộ đệm CUDA
+   ▼
+QUERY      ->  reranker + LLM + embedding
+```
+
+Đo thật bằng `nvidia-smi` và `/api/ps`, con số VRAM khác hẳn ước lượng ban đầu — và cái
+sai đó đủ để lật ngược kết luận:
+
+| Model | VRAM (đo bằng `nvidia-smi` + `/api/ps`) |
+|---|---:|
+| qwen3:4b (num_ctx 16384) | **4,75 GB** |
+| bge-reranker-v2-m3 | 2,20 GB |
+| multilingual-e5-base | 1,12 GB |
+| **Tổng ở giai đoạn QUERY** | **8,07 GB** > 7,96 GB của card |
+
+Hậu quả quan sát được khi để cả ba trên GPU (ứng dụng thật, không phải benchmark): VRAM còn
+trống **288 MB**, reranker mất ~58 giây mới nạp xong, lượt hỏi đầu tiên báo **50,8 giây** cho
+bước lẽ ra mất 2,6 giây — **không một dòng lỗi nào**.
+
+Vì vậy ranh giới giai đoạn làm hai việc chứ không phải một. Đo trên các lần build thật:
+
+| Thời điểm | PyTorch giữ | VRAM còn trống |
+|---|---:|---:|
+| Ingestion vừa kết thúc | 2,78 GB | 0,79 GB |
+| Sau khi nhả vision + dọn bộ đệm CUDA | 1,13 GB | 5,70 GB |
+| Sau khi chuyển embedding sang CPU | **0,04 GB** | **6,79 GB** |
+
+**Vì sao hy sinh đúng embedding** — lý do nằm ở quy mô công việc, không ở kích thước model.
+Lúc truy vấn nó chỉ mã hoá 1–3 chuỗi ngắn: trên máy thoáng, GPU nhanh hơn CPU đúng **14 ms**
+(6,1 so với 20,3). Reranker thì chấm vài chục cặp mỗi câu và GPU nhanh hơn 11,2 lần.
+
+**Và kết quả thật còn tốt hơn phép tính trên giấy.** Khi VRAM bị tranh chấp, mã hoá câu hỏi
+trên GPU *chậm hơn* trên CPU (682 ms so với 21 ms) vì nó phải chờ giành chỗ. Hết tranh chấp,
+tổng truy xuất còn **0,45 giây** mỗi câu — tức rời GPU không phải một đánh đổi mà là một cải
+thiện. Quyết định tính theo TỔNG VRAM chứ không phải phần còn trống, vì nó phải ổn định cho
+cả phiên; card lớn hơn ngưỡng thì giữ tất cả trên GPU.
+
+**Một lỗ hổng chỉ lộ ra khi chạy ứng dụng thật.** Bước chuyển giai đoạn ở trên chỉ chạy
+sau khi người dùng bấm "Đọc tài liệu". Nhưng phần lớn phiên làm việc **không** bắt đầu như
+vậy — người ta mở app lên và hỏi ngay trên index đã có. Trong đúng những phiên đó, bước
+chuyển giai đoạn chưa từng chạy, nên embedding vẫn nằm trên GPU tranh VRAM với LLM suốt cả
+phiên. Benchmark hoàn toàn không thấy điều này vì nó luôn chạy ingestion trước.
+
+| Lượt hỏi đầu tiên của một phiên mới | Truy xuất |
+|---|---:|
+| Trước khi có quản lý VRAM | **50,8 s** |
+| Sau khi nhả vision, embedding vẫn mặc định ở GPU | 22,8 s |
+| Câu thứ hai trong cùng phiên đó | 7,4 s |
+| **Sau khi đổi mặc định: embedding ở CPU, rerank ở GPU** | **0,7 s** |
+| Trung vị các câu tiếp theo, đo lại đầy đủ (§8.7) | **0,45 s** |
+
+Cách sửa là đổi **trạng thái mặc định** chứ không thêm một bước chuyển nữa: mặc định phải là
+trạng thái của giai đoạn HAY GẶP NHẤT (query), còn ingestion — vốn luôn đi qua
+`bat_dau_ingestion()` — thì tự nâng embedding lên GPU đúng lúc cần rồi trả về sau. Card rộng
+hơn ngưỡng thì không có đánh đổi nào, giữ tất cả trên GPU.
+
+Bài học lặp lại đúng chủ đề của cả tài liệu này: **một cơ chế chỉ đúng ở đường đi mà ta đã
+nghĩ tới**. Ở đây phép đo tự động đi qua ingestion nên không bao giờ chạm vào đường mà người
+dùng thật đi nhiều nhất, và chỉ việc mở ứng dụng lên bấm thử mới lộ ra.
+
+
+**Ràng buộc khi sửa module này:** không có GPU thì mọi hàm phải thành không-làm-gì chứ không
+được ném lỗi. Máy chỉ có CPU là môi trường mặc định của người chấm đồ án, và một tính năng
+lẽ ra chỉ là tối ưu mà làm sập luồng build là một đánh đổi không bao giờ chấp nhận được.
+Bộ test ép `co_cuda()` trả `False` để chạy đúng nhánh đó, thay vì phụ thuộc vào việc máy chạy
+test có card hay không — nếu phụ thuộc thì trên máy có GPU nhánh ấy sẽ không bao giờ được
+kiểm, tức lỗi chỉ lộ ra ở máy người khác.
+
+**NÚT THẮT ĐÃ CHUYỂN — và đây mới là kết luận đáng nhớ nhất.** Sau đợt này, bảng chi phí đọc
+lên hoàn toàn khác:
+
+| Giai đoạn | Chi phí lớn nhất | Tỉ trọng |
+|---|---|---:|
+| Ingestion (cache rỗng) | chú thích ảnh bằng model vision | **88,5%** |
+| Ingestion (cache đầy) | — (3,35 s, nhanh hơn 77×) | — |
+| Query | LLM sinh chữ (chủ yếu là chuỗi suy luận của qwen3) | **~90%** |
+
+Truy xuất — thứ cả đợt tối ưu này nhắm vào — nay chỉ còn 2,6 giây và **không còn là chỗ đáng
+tối ưu tiếp**. Embedding, sau khi lên GPU, chỉ còn chiếm 3,3% chi phí ingestion. Mọi nỗ lực
+tối ưu tiếp theo mà không nhắm vào hai ô in đậm ở trên đều là tối ưu nhầm chỗ, và bảng này
+tồn tại chính để chặn điều đó.
 
 ---
 

@@ -28,14 +28,24 @@ import numpy as np
 from sentence_transformers import CrossEncoder
 
 import config
+from rag import tai_nguyen_gpu
 
 logger = logging.getLogger(__name__)
 
 
 class RerankerService:
-    def __init__(self, model_name: str = None):
+    def __init__(self, model_name: str = None, thiet_bi: str = None):
+        """thiet_bi: "cuda" / "cpu"; bỏ trống thì TỰ DÒ theo phần cứng của máy đang chạy.
+
+        Đây là model đáng đưa lên GPU nhất trong cả hệ thống, và lý do không phải vì nó nặng
+        nhất mà vì nó nằm trên đường đi của MỌI câu hỏi: người dùng chờ nó xong mới thấy chữ
+        đầu tiên. Đo được 12 cặp (ngân sách của câu hỏi thường): 1,68 s trên CPU so với
+        0,15 s trên GPU - nhanh hơn 11,2 lần, cắt thẳng khỏi thời gian chờ của từng lượt hỏi.
+        """
         self.model_name = model_name or config.RERANKER_MODEL_NAME
+        self.thiet_bi = thiet_bi or tai_nguyen_gpu.thiet_bi("rerank")
         self._model = self._nap_model()
+        logger.info("Model rerank '%s' chạy trên %s.", self.model_name, self.thiet_bi)
 
     def _nap_model(self) -> CrossEncoder:
         """Nạp model, tự xử lý trường hợp model yêu cầu trust_remote_code.
@@ -46,13 +56,13 @@ class RerankerService:
         KHÔNG bật trước (an toàn hơn), chỉ bật khi model thật sự đòi, và log rõ khi phải bật.
         """
         try:
-            return CrossEncoder(self.model_name)
+            return CrossEncoder(self.model_name, device=self.thiet_bi)
         except (ValueError, OSError, ImportError) as loi:
             logger.info(
                 "Nạp '%s' thất bại (%s) - thử lại với trust_remote_code=True.",
                 self.model_name, type(loi).__name__,
             )
-            return CrossEncoder(self.model_name, trust_remote_code=True)
+            return CrossEncoder(self.model_name, trust_remote_code=True, device=self.thiet_bi)
 
     def xep_hang(self, cau_hoi: str, cac_doan: List[str]) -> np.ndarray:
         """Chấm điểm liên quan cho từng đoạn so với câu hỏi.

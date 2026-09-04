@@ -16,7 +16,7 @@ Index. Đó là lý do bốn chốt sau đều nằm TRƯỚC lượt gọi mode
   2. GỘP ẢNH TRÙNG NỘI DUNG: một hình dùng lại ở 20 slide chỉ tốn đúng 1 lượt gọi.
   3. CACHE THEO BĂM NỘI DUNG ẢNH (rag/bo_nho_dem.py): ảnh đã chú thích ở lần build trước thì
      không gọi lại, kể cả khi tài liệu đổi tên hay được đọc lại vì lý do khác.
-  4. GỌI SONG SONG (config.SO_WORKER_VISION): phần còn lại chạy nhiều luồng, vì toàn bộ thời
+  4. GỌI SONG SONG (số worker suy từ phần cứng): phần còn lại chạy nhiều luồng, vì toàn bộ thời
      gian chờ ở đây là chờ mạng chứ không phải chờ CPU của chính mình.
 
 Nhờ bốn chốt đó mà tuỳ chọn này mặc định BẬT: chi phí thật chỉ còn rơi vào những hình MỚI và
@@ -36,7 +36,7 @@ from typing import Dict, Optional
 import ollama
 
 import config
-from rag import bo_nho_dem, do_thoi_gian
+from rag import bo_nho_dem, do_thoi_gian, tai_nguyen_gpu
 
 logger = logging.getLogger(__name__)
 
@@ -177,7 +177,8 @@ def bo_sung_chu_thich_vision(cac_ban_ghi_anh: list, client: Optional[ollama.Clie
          giảng - từ N lượt gọi còn đúng 1.
       2. CACHE TRÊN ĐĨA. Ảnh đã từng được chú thích ở lần build trước thì lấy lại kết quả cũ,
          kể cả khi tài liệu đã đổi tên hay được đọc lại vì một trang khác thay đổi.
-      3. GỌI SONG SONG. Phần còn lại chạy trên config.SO_WORKER_VISION luồng. Đây là bước
+      3. GỌI SONG SONG. Phần còn lại chạy trên nhiều luồng, số worker suy từ phần cứng
+         đang có (tai_nguyen_gpu.so_worker_vision). Đây là bước
          đắt nhất của cả luồng Ingestion (~1,9 giây mỗi ảnh theo benchmark của project) và
          cũng là bước NHÀN RỖI nhất về phía Python - toàn bộ thời gian đó là ngồi chờ Ollama
          trả lời qua HTTP.
@@ -224,7 +225,7 @@ def bo_sung_chu_thich_vision(cac_ban_ghi_anh: list, client: Optional[ollama.Clie
         else:
             can_goi.append((khoa, str(duong_dan), khoa_cache))
 
-    so_worker = max(1, min(config.SO_WORKER_VISION, len(can_goi)))
+    so_worker = max(1, min(tai_nguyen_gpu.so_worker_vision(), len(can_goi)))
     logger.info(
         "Chú thích ảnh: %d bản ghi -> %d ảnh khác nhau; %d lấy từ cache, %d cần gọi model "
         "(%d luồng).",

@@ -31,6 +31,7 @@ DUONG_DAN_APP = str(Path(__file__).resolve().parent.parent / "app.py")
 
 class _EmbeddingGia:
     dimension = 4
+    thiet_bi = "cpu"
     max_seq_length = 512
 
     def encode_cau_hoi(self, texts):
@@ -45,6 +46,13 @@ class _EmbeddingGia:
 
     def lay_ham_dem_token(self):
         return lambda t: len(t.split())
+
+    def chuyen_thiet_bi(self, moi):
+        """Có mặt để khớp interface thật của EmbeddingService (rag/tai_nguyen_gpu.py gọi tới
+        ở ranh giới giai đoạn). Test double thiếu method này thì lỗi lệch interface sẽ hiện
+        ra dưới dạng AttributeError giữa luồng build, chứ không phải một test đỏ rõ ràng."""
+        self.thiet_bi = moi
+        return False
 
 
 def _tao_docx(duong_dan: Path, noi_dung: str) -> None:

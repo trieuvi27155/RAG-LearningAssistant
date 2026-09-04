@@ -4,6 +4,18 @@ python-pptx>=0.6.23
 python-docx>=1.1
 langchain-text-splitters>=0.2
 sentence-transformers>=2.7
+# torch đi kèm sentence-transformers, nhưng bản cài mặc định từ PyPI là CPU-ONLY. Trên máy
+# CÓ GPU NVIDIA, đó là một cấu hình sai KHÔNG gây lỗi: hệ thống vẫn trả lời đúng, chỉ chậm
+# hơn nhiều lần (đo được: embedding 13,3x, rerank 5,0x - xem KET_QUA_DO_DAC.md §7.4).
+#
+# Muốn dùng GPU thì cài BẢN CUDA, thay <cuXXX> bằng phiên bản khớp driver của bạn
+# (`nvidia-smi` in ra "CUDA Version"; cu126/cu128/cu130 là các mốc phổ biến):
+#
+#     pip install torch --index-url https://download.pytorch.org/whl/cu130
+#
+# Kiểm tra sau khi cài:  python -c "import torch; print(torch.cuda.is_available())"
+# GPU dòng RTX 50xx (Blackwell) cần CUDA >= 12.8, tức cu128 trở lên.
+# KHÔNG có GPU thì bỏ qua toàn bộ mục này - hệ thống tự chạy CPU, không cần chỉnh gì.
 faiss-cpu>=1.8
 ollama>=0.2
 # httpx vốn là dependency của ollama, nhưng rag/rag_pipeline.py bắt httpx.ConnectError một

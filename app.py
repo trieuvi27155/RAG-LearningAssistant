@@ -32,7 +32,7 @@ import time
 import streamlit as st
 
 import config
-from rag import bo_nho_dem, do_thoi_gian
+from rag import bo_nho_dem, do_thoi_gian, tai_nguyen_gpu
 from rag.chunking import chia_chunk
 from rag.citation import bo_so_trich_dan, loc_theo_tham_chieu
 from rag.document_loader import cac_file_tai_lieu, doc_nhieu_file
@@ -200,6 +200,9 @@ def xay_dung_lai_index(embedding_service: EmbeddingService, store_dang_dung=None
     được dù index phải dựng mới).
     """
     do_thoi_gian.dat_lai()
+    # Vào giai đoạn INGESTION: đưa embedding trở lại GPU nếu lần build trước đã đẩy nó
+    # xuống CPU để nhường VRAM cho luồng truy vấn (§5.68).
+    tai_nguyen_gpu.bat_dau_ingestion(embedding_service)
     cac_file = cac_file_tai_lieu(config.RAW_DOCS_DIR)
     if not cac_file:
         st.warning("Chưa có tài liệu nào có nội dung đọc được trong thư mục dữ liệu.")
@@ -264,6 +267,11 @@ def xay_dung_lai_index(embedding_service: EmbeddingService, store_dang_dung=None
         return None
 
     store.luu()
+    # RANH GIỚI GIAI ĐOẠN. Từ đây trở đi hệ thống chỉ còn phục vụ câu hỏi, nên model vision
+    # (nặng nhất trong bốn model) không còn lý do gì để chiếm VRAM. Không nhả thì Ollama giữ
+    # nó thêm 5 phút nữa - đúng 5 phút mà người dùng vừa build xong và bắt đầu hỏi, tức lúc
+    # VRAM đang cần cho LLM và reranker. Tự bỏ qua trên máy không có GPU.
+    tai_nguyen_gpu.ket_thuc_ingestion(embedding_service=embedding_service)
     if config.BAT_PROFILING_INGESTION:
         do_thoi_gian.ghi_bao_cao("PROFILING INGESTION")
     return store
@@ -608,6 +616,22 @@ with st.sidebar:
             f"📊 {st.session_state.vector_store.so_luong_vector} chunk · "
             f"{config.OLLAMA_MODEL}"
         )
+        # Nói rõ đang chạy trên GPU hay CPU. Đây không phải thông tin trang trí: "máy có GPU
+        # nhưng PyTorch bản CPU-only" là một cấu hình sai KHÔNG gây lỗi - hệ thống vẫn trả
+        # lời đúng, chỉ chậm hơn khoảng 13 lần ở embedding và 5 lần ở rerank. Không hiện ra
+        # thì không ai biết, và người dùng sẽ đi tối ưu nhầm chỗ.
+        if tai_nguyen_gpu.co_cuda():
+            # Nói ĐÚNG thiết bị của từng vai trò, không gộp thành "đang dùng GPU": trên card
+            # chật, embedding cố ý nằm ở CPU để nhường VRAM cho reranker và LLM (§5.68). Ghi
+            # gộp sẽ biến một quyết định có chủ đích thành một câu sai.
+            st.caption(
+                f"⚡ GPU: rerank={tai_nguyen_gpu.thiet_bi('rerank')} · "
+                f"embedding={tai_nguyen_gpu.thiet_bi('embedding')}"
+            )
+        else:
+            st.caption(
+                "🐢 Đang chạy CPU — cài PyTorch bản CUDA sẽ nhanh hơn nhiều nếu máy có GPU NVIDIA"
+            )
         # Index cũ + model embedding mới = kết quả truy xuất sai HOÀN TOÀN nhưng không hề
         # báo lỗi (2 model có thể cùng số chiều vector nên FAISS vẫn chạy bình thường). Đây
         # là loại hỏng hóc không thể tự nhận ra qua câu trả lời, nên phải cảnh báo rõ ràng.
