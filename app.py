@@ -32,9 +32,10 @@ import time
 import streamlit as st
 
 import config
+from rag import bo_nho_dem, do_thoi_gian
 from rag.chunking import chia_chunk
 from rag.citation import bo_so_trich_dan, loc_theo_tham_chieu
-from rag.document_loader import doc_thu_muc
+from rag.document_loader import cac_file_tai_lieu, doc_nhieu_file
 from rag.embedding import EmbeddingService
 from rag.rag_pipeline import (
     LoiKhongKetNoiDuocOllama,
@@ -43,7 +44,7 @@ from rag.rag_pipeline import (
     la_cau_hoi_kiem_chung,
 )
 from rag.reranker import tao_reranker_neu_bat
-from rag.vector_store import VectorStore
+from rag.vector_store import VectorStore, so_sanh_bam_tai_lieu
 
 logger = logging.getLogger(__name__)
 
@@ -158,27 +159,113 @@ def lay_pipeline(embedding_service: EmbeddingService, store: VectorStore) -> Rag
         )
         st.session_state.pipeline_cho_store = store
     return st.session_state.pipeline
-def xay_dung_lai_index(embedding_service: EmbeddingService):
-    """Chạy trọn luồng Ingestion: đọc toàn bộ tài liệu trong data/raw -> chunk -> embed
-    -> build FAISS index mới -> lưu xuống đĩa. Được gọi khi bấm nút "Đọc tài liệu"."""
-    cac_trang = doc_thu_muc(config.RAW_DOCS_DIR)
-    if not cac_trang:
+
+
+def _store_dung_lai_duoc(store):
+    """Index đang có trong phiên có dùng lại được cho một lần build TĂNG DẦN không?
+
+    Ba điều kiện, và cả ba đều nhằm tránh đúng một kiểu hỏng: một index TRỘN hai thế hệ dữ
+    liệu. Vector của tài liệu cũ và tài liệu mới phải cùng model, cùng chunk size, cùng các
+    tuỳ chọn ăn vào nội dung - nếu không thì chúng nằm ở hai không gian khác nhau mà FAISS
+    vẫn cứ so sánh với nhau, cho ra kết quả sai một cách hoàn toàn im lặng.
+
+    ly_do_khong_tuong_thich() vốn đã trả lời đúng câu hỏi đó (nó được viết để cảnh báo người
+    dùng khi đổi model mà quên build lại); ở đây chỉ dùng lại nó cho một quyết định tự động.
+    """
+    if not config.BAT_INDEX_TANG_DAN or store is None or store.so_luong_vector == 0:
+        return False
+    ly_do = store.ly_do_khong_tuong_thich()
+    if ly_do:
+        logger.info("Không build tăng dần được, sẽ dựng lại index từ đầu: %s", ly_do)
+        return False
+    return True
+
+
+def xay_dung_lai_index(embedding_service: EmbeddingService, store_dang_dung=None):
+    """Chạy luồng Ingestion: đọc tài liệu trong data/raw -> chunk -> embed -> lưu index.
+
+    TĂNG DẦN THEO MẶC ĐỊNH (config.BAT_INDEX_TANG_DAN): chỉ những tài liệu MỚI hoặc ĐÃ ĐỔI
+    NỘI DUNG mới đi qua toàn bộ luồng; tài liệu không đổi giữ nguyên vector đang có trong
+    index, và tài liệu đã bị xoá khỏi thư mục thì vector của nó bị gỡ ra.
+
+    Vì sao so bằng BĂM NỘI DUNG chứ không phải thời điểm sửa file: git checkout, sao chép
+    file, đồng bộ cloud đều đổi mtime mà không đổi nội dung - dùng mtime là tự chuốc lấy
+    những lần build lại vô nghĩa, đúng thứ đang muốn loại bỏ. Chiều ngược lại cũng có: vài
+    công cụ ghi đè file mà giữ nguyên mtime, lúc đó mtime sẽ khiến hệ thống BỎ SÓT thay đổi
+    thật - kiểu hỏng tệ hơn hẳn.
+
+    Khi không tăng dần được (đổi model embedding, đổi chunk size, chưa có index), hàm tự lùi
+    về dựng lại toàn bộ - vẫn nhanh hơn bản trước rất nhiều nhờ cache theo content hash ở
+    rag/bo_nho_dem.py (kết quả đọc tài liệu, OCR, chú thích ảnh và embedding đều dùng lại
+    được dù index phải dựng mới).
+    """
+    do_thoi_gian.dat_lai()
+    cac_file = cac_file_tai_lieu(config.RAW_DOCS_DIR)
+    if not cac_file:
         st.warning("Chưa có tài liệu nào có nội dung đọc được trong thư mục dữ liệu.")
         return None
 
-    # Chia chunk bằng ĐÚNG tokenizer + giới hạn độ dài của model embedding đang dùng, thay
-    # vì bộ đếm xấp xỉ dùng chung: kích thước chunk chỉ có ý nghĩa khi đo bằng thước đo của
-    # chính model sẽ encode nó (xem config.CHUNK_SIZE_TOKENS).
-    cac_chunk = chia_chunk(
-        cac_trang,
-        dem_token_fn=embedding_service.lay_ham_dem_token(),
-        max_seq_length=embedding_service.max_seq_length,
-    )
-    vectors = embedding_service.encode_tai_lieu([c["noidung"] for c in cac_chunk])
+    with do_thoi_gian.do("bam_tai_lieu"):
+        bam_hien_tai = {d.name: bo_nho_dem.bam_file(d) for d in cac_file}
 
-    store = VectorStore(dimension=embedding_service.dimension)
-    store.them(vectors, cac_chunk)
+    if _store_dung_lai_duoc(store_dang_dung):
+        store = store_dang_dung
+        ten_can_doc, ten_can_xoa, giu_nguyen = so_sanh_bam_tai_lieu(
+            store.bam_tai_lieu, bam_hien_tai
+        )
+        # Tài liệu đã biến mất khỏi thư mục: gỡ vector của nó ra. Không làm bước này thì
+        # index vẫn trả lời bằng một tài liệu người dùng tưởng đã xoá.
+        for ten in ten_can_xoa:
+            so_xoa = store.xoa_theo_nguon(ten)
+            logger.info("'%s' không còn trong thư mục - đã gỡ %d chunk khỏi index.", ten, so_xoa)
+        # Tài liệu ĐÃ ĐỔI: xoá sạch vector cũ TRƯỚC khi thêm bản mới, nếu không index sẽ
+        # chứa cả hai phiên bản và trích dẫn có thể trỏ vào nội dung không còn tồn tại.
+        for ten in ten_can_doc:
+            store.xoa_theo_nguon(ten)
+        can_doc = [d for d in cac_file if d.name in set(ten_can_doc)]
+        logger.info(
+            "Build TĂNG DẦN: %d/%d tài liệu cần xử lý lại (%d tài liệu giữ nguyên vector cũ).",
+            len(can_doc), len(cac_file), len(giu_nguyen),
+        )
+    else:
+        store = VectorStore(dimension=embedding_service.dimension)
+        can_doc = cac_file
+        logger.info("Build TOÀN BỘ: %d tài liệu.", len(can_doc))
+
+    if can_doc:
+        cac_trang = doc_nhieu_file(can_doc)
+        # Chia chunk bằng ĐÚNG tokenizer + giới hạn độ dài của model embedding đang dùng,
+        # thay vì bộ đếm xấp xỉ dùng chung: kích thước chunk chỉ có ý nghĩa khi đo bằng
+        # thước đo của chính model sẽ encode nó (xem config.CHUNK_SIZE_TOKENS).
+        with do_thoi_gian.do("chunking"):
+            cac_chunk = chia_chunk(
+                cac_trang,
+                dem_token_fn=embedding_service.lay_ham_dem_token(),
+                max_seq_length=embedding_service.max_seq_length,
+            )
+        with do_thoi_gian.do("embedding"):
+            vectors = bo_nho_dem.encode_co_cache(
+                embedding_service, [c["noidung"] for c in cac_chunk]
+            )
+        if len(cac_chunk):
+            store.them(vectors, cac_chunk)
+
+        # Chỉ ghi nhận băm cho tài liệu THẬT SỰ có nội dung vào index. Một file đọc hỏng
+        # (mật khẩu, tải dở) hay rỗng mà vẫn được ghi là "đã xử lý" sẽ bị bỏ qua ở mọi lần
+        # build sau - tức lỗi im lặng vĩnh viễn. Để nó trượt và được thử lại mỗi lần là lựa
+        # chọn đúng, và gần như miễn phí vì cache tài liệu bắt ngay ở lượt đọc kế tiếp.
+        co_noi_dung = {m["nguon"] for m in cac_trang}
+        for duong_dan in can_doc:
+            if duong_dan.name in co_noi_dung:
+                store.bam_tai_lieu[duong_dan.name] = bam_hien_tai[duong_dan.name]
+
+    if store.so_luong_vector == 0:
+        st.warning("Chưa có tài liệu nào có nội dung đọc được trong thư mục dữ liệu.")
+        return None
+
     store.luu()
+    if config.BAT_PROFILING_INGESTION:
+        do_thoi_gian.ghi_bao_cao("PROFILING INGESTION")
     return store
 
 
@@ -510,7 +597,9 @@ with st.sidebar:
         "Đọc tài liệu", use_container_width=True, disabled=st.session_state.dang_xu_ly
     ):
         with st.spinner("Đang đọc tài liệu, vui lòng chờ trong giây lát!"):
-            st.session_state.vector_store = xay_dung_lai_index(embedding_service)
+            st.session_state.vector_store = xay_dung_lai_index(
+                embedding_service, st.session_state.vector_store
+            )
         if st.session_state.vector_store is not None:
             st.success(f"Đã build index với {st.session_state.vector_store.so_luong_vector} chunk.")
 
@@ -525,6 +614,21 @@ with st.sidebar:
         ly_do = st.session_state.vector_store.ly_do_khong_tuong_thich()
         if ly_do:
             st.warning(f"⚠️ {ly_do}\n\nHãy bấm **đọc tài liệu** để cập nhật.")
+
+    # BỘ NHỚ ĐỆM INGESTION. Hiện ra vì hai lẽ, đều là chuyện người dùng cần biết chứ không
+    # phải chi tiết nội bộ: (1) nó chiếm chỗ thật trên đĩa - ảnh render, chú thích vision và
+    # vector embedding của cả corpus; (2) khi ai đó nghi ngờ hệ thống đang trả lời bằng nội
+    # dung cũ, họ phải có một cách dứt khoát để loại bỏ giả thuyết đó. Nút xoá ở đây là câu
+    # trả lời cho cả hai, và nó an toàn tuyệt đối: mọi thứ trong cache đều tính lại được.
+    dung_luong = bo_nho_dem.dung_luong_cache()
+    if dung_luong:
+        cot_thong_tin, cot_nut = st.columns([2, 1])
+        cot_thong_tin.caption(f"💾 Cache đọc tài liệu: {dung_luong / (1 << 20):.0f} MB")
+        if cot_nut.button("Xoá cache", use_container_width=True,
+                          disabled=st.session_state.dang_xu_ly):
+            bo_nho_dem.xoa_cache()
+            st.toast("Đã xoá cache. Lần đọc tài liệu tới sẽ xử lý lại từ đầu.")
+            st.rerun()
 
     # Ollama chưa chạy = truy xuất vẫn ra kết quả nhưng không sinh nổi một chữ nào. Nói ngay
     # ở đây, trước khi người dùng gõ câu hỏi đầu tiên: đây là nguyên nhân số một khiến hệ

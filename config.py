@@ -94,8 +94,12 @@ INDEX_INFO_FILE = FAISS_INDEX_DIR / "index_info.json"
 # Ảnh trích ra từ tài liệu, lưu lại để hiển thị kèm trích dẫn (người đọc nhìn thấy đúng
 # hình mà câu trả lời dựa vào) và để model vision đọc nếu bật chú thích ảnh.
 IMAGES_DIR = DATA_DIR / "images"
+# Bộ nhớ đệm của luồng Ingestion: kết quả đọc tài liệu, OCR, chú thích ảnh, embedding - tất
+# cả đánh khoá theo BĂM NỘI DUNG (xem rag/bo_nho_dem.py). Xoá cả thư mục này bất cứ lúc nào
+# cũng an toàn: mọi thứ trong đó đều tính lại được, chỉ mất thời gian chứ không mất dữ liệu.
+CACHE_DIR = DATA_DIR / "cache"
 
-for _thu_muc in (RAW_DOCS_DIR, FAISS_INDEX_DIR, IMAGES_DIR):
+for _thu_muc in (RAW_DOCS_DIR, FAISS_INDEX_DIR, IMAGES_DIR, CACHE_DIR):
     _thu_muc.mkdir(parents=True, exist_ok=True)
 
 
@@ -968,3 +972,195 @@ SO_LAN_CHAM_MAU_THUAN = _lay_int("SO_LAN_CHAM_MAU_THUAN", 2)
 # Mức độ mâu thuẫn tối thiểu (0-1) để báo ra. Dưới mức này thường là "hai cách diễn đạt khác
 # nhau của cùng một ý" chứ không phải xung đột thật.
 NGUONG_MAU_THUAN = _lay_float("NGUONG_MAU_THUAN", 0.6)
+
+
+# ============================================================
+# TỐI ƯU INGESTION: CACHE, SONG SONG HOÁ, LỌC ẢNH
+# ============================================================
+# Toàn bộ nhóm tham số dưới đây phục vụ MỘT nguyên tắc: chỉ trả chi phí tính toán khi thực
+# sự cần. Tài liệu text tốt phải đọc rất nhanh; tài liệu scan chấp nhận chậm vì OCR; tài
+# liệu nhiều hình chỉ gọi model vision cho những hình có giá trị; và tài liệu ĐÃ XỬ LÝ RỒI
+# thì không được xử lý lại. Không tham số nào ở đây tắt OCR, Vision hay reranker để lấy tốc
+# độ - làm vậy là đổi chất lượng lấy thời gian, tức giải một bài toán khác.
+
+# Bật bộ nhớ đệm theo content hash cho đọc tài liệu / OCR / chú thích ảnh / embedding.
+#
+# Tắt khi nào: lúc ĐO ĐẠC chi phí thật của một lần build từ đầu (evaluation, benchmark), vì
+# cache trúng sẽ cho ra những con số không phản ánh chi phí thực. Ngoài hai việc đó thì
+# không có lý do gì để tắt - cache đánh khoá theo nội dung nên không thể trả về kết quả cũ
+# cho một tài liệu đã đổi.
+BAT_CACHE_INGESTION = _lay_bool("BAT_CACHE_INGESTION", True)
+
+# Chỉ xử lý lại những tài liệu MỚI hoặc ĐÃ THAY ĐỔI, giữ nguyên vector của các tài liệu cũ
+# trong index (thay vì dựng lại index từ đầu mỗi lần bấm "Đọc tài liệu").
+#
+# Vì sao đây là thứ đáng làm nhất về trải nghiệm: thêm tài liệu là thao tác người dùng lặp
+# lại nhiều nhất, và với luồng cũ thì thêm 1 file vào 10 file đã có nghĩa là trả lại chi phí
+# của cả 11 file. Vector của 10 file kia không hề đổi - chúng được sinh bởi cùng model, từ
+# cùng nội dung, nên tính lại chỉ để ra đúng con số cũ.
+#
+# An toàn ra sao: mỗi tài liệu được ghi kèm BĂM NỘI DUNG vào index_info.json. Băm khác ->
+# xoá sạch vector cũ của file đó rồi đọc lại. File biến mất khỏi thư mục -> vector của nó bị
+# xoá khỏi index. Đổi model embedding / chunk size / tuỳ chọn ăn vào nội dung -> vân tay
+# index không khớp, hệ thống tự build lại TOÀN BỘ (xem VectorStore.ly_do_khong_tuong_thich).
+BAT_INDEX_TANG_DAN = _lay_bool("BAT_INDEX_TANG_DAN", True)
+
+# In bảng tổng kết thời gian từng bước sau mỗi lần build (xem rag/do_thoi_gian.py).
+#
+# Mặc định BẬT vì đây là thứ trả lời câu hỏi "chỗ nào đang chậm" bằng số đo thay vì bằng
+# cảm nhận, và nó gần như miễn phí: một phép trừ time.perf_counter() cho mỗi bước.
+BAT_PROFILING_INGESTION = _lay_bool("BAT_PROFILING_INGESTION", True)
+
+
+# ---------- Song song hoá ----------
+def _so_worker_mac_dinh(toi_da: int) -> int:
+    """Số worker mặc định suy từ chính máy đang chạy, chặn trên bằng `toi_da`.
+
+    Vì sao không đặt cứng một con số: máy 4 nhân và máy 16 nhân cần hai giá trị khác nhau,
+    mà người dùng đồ án thì không ai đi chỉnh. Vì sao vẫn chặn trên: các bước này đều đi qua
+    MỘT máy chủ Ollama duy nhất, mở hàng chục yêu cầu cùng lúc không làm model chạy nhanh
+    hơn (nó vẫn xếp hàng) mà chỉ làm RAM/VRAM phình lên và có thể chậm hơn hẳn vì hoán đổi.
+    """
+    return max(1, min(toi_da, (os.cpu_count() or 2) // 2))
+
+
+# Số luồng gọi model vision song song (chú thích ảnh và OCR trang).
+#
+# Vì sao ĐÂY là chỗ đáng song song hoá nhất: mỗi lượt gọi là một yêu cầu HTTP tới Ollama rồi
+# NGỒI CHỜ - tiến trình Python không làm gì trong suốt thời gian đó. Benchmark của chính
+# project đo được ~1,9 giây mỗi ảnh (và 3-6 giây trên máy chỉ có CPU); với vài trăm ảnh thì
+# riêng bước này đã là nhiều phút đồng hồ chờ đợi thuần tuý.
+#
+# Vì sao dùng THREAD chứ không phải process: công việc thật nằm ở phía máy chủ Ollama, phía
+# Python chỉ chờ I/O - mà chờ I/O thì thread nhả GIL. Process sẽ phải nhân bản cả tiến trình
+# (nạp lại model embedding, mở lại index) để đổi lấy đúng con số 0 về hiệu năng.
+#
+# Đặt = 1 để quay lại hành vi tuần tự cũ (dễ đọc log hơn khi cần dò lỗi từng ảnh).
+SO_WORKER_VISION = _lay_int("SO_WORKER_VISION", _so_worker_mac_dinh(4))
+
+# Số tiến trình đọc tài liệu song song. MẶC ĐỊNH 1 (tắt) - và đây là một lựa chọn có chủ ý,
+# không phải việc chưa làm xong:
+#   - Đọc PDF bằng pdfplumber là công việc THUẦN CPU trong Python, tức bị GIL chặn. Dùng
+#     thread ở đây cho ra đúng tốc độ cũ kèm thêm rủi ro tranh chấp trạng thái.
+#   - Dùng process thì mỗi tiến trình con phải nạp lại toàn bộ module, và trên Windows (nền
+#     tảng chính của đồ án) `spawn` còn chạy lại phần khởi tạo của config. Với corpus vài
+#     chục file thì phần chi phí đó ăn mất phần lớn khoản lợi.
+#   - Quan trọng nhất: sau khi đã có cache + index tăng dần, lần build thứ hai trở đi gần
+#     như không còn đọc lại tài liệu nào. Song song hoá một việc đã không còn xảy ra là tối
+#     ưu nhầm chỗ.
+# Nâng lên (2-4) khi phải nạp lần đầu một corpus lớn toàn tài liệu text sạch.
+SO_WORKER_DOC = _lay_int("SO_WORKER_DOC", 1)
+
+
+# ---------- Hiệu chỉnh x_tolerance theo tài liệu ----------
+# Độ dính chữ coi là ĐÃ SẠCH - đạt mức này thì dừng thử các x_tolerance còn lại.
+#
+# PHẢI LÀ MỘT SỐ RIÊNG, KHÔNG ĐƯỢC DÙNG LẠI TY_LE_DINH_CHU_DE_DOC_LAI. Hai con số trả lời hai
+# câu hỏi khác nhau: 0.10 là "trang này có đáng đọc lại không", còn số ở đây là "bản đọc lại
+# đã đủ tốt để thôi chưa". Bản đầu của phép dừng sớm dùng chung 0.10 cho cả hai và ĐÃ GÂY LỖI
+# THẬT, đo được trên PaperQA.pdf: mức x_tolerance đầu tiên đưa độ dính từ 30% xuống 9% liền
+# được chấp nhận ngay, trong khi mức tốt hơn nằm ngay sau đó đưa nó về gần 0. Phần 9% còn lại
+# không phải con số trừu tượng - nó là những dòng như
+#     "RAGmodelsretrievetextfromacorpus, usingmethodssuchasvectorembeddingsearch"
+# tức chữ dính liền đi thẳng vào index, phá cả BM25 lẫn embedding của đúng những đoạn đó.
+#
+# Vì sao 0.02: chính số đo đã có ở _ty_le_dinh_chu() - tám file PDF đọc tốt trong corpus cho
+# 0.0-1.5%, còn trang hỏng cho 41.7%. Khoảng trống giữa hai nhóm rất rộng, nên đặt vạch ngay
+# trên mức cao nhất của nhóm "đọc tốt" là vừa an toàn vừa không cần đo thêm.
+TY_LE_DINH_CHU_DAT_YEU_CAU = _lay_float("TY_LE_DINH_CHU_DAT_YEU_CAU", 0.02)
+
+
+# Số trang ĐẦU (trong những trang bị dính chữ) dùng để dò ra x_tolerance phù hợp cho cả tài
+# liệu; các trang sau thử giá trị đã dò được TRƯỚC TIÊN và dừng ngay khi đạt.
+#
+# Vì sao: giá trị x_tolerance tốt nhất phụ thuộc FONT và CỠ CHỮ của tài liệu (xem
+# _trich_text_thich_ung) - mà font thì gần như không đổi trong cùng một cuốn sách. Bản cũ
+# vẫn thử LẦN LƯỢT CẢ 4 mức trên MỌI trang dính chữ, tức đọc lại toàn bộ trang 4 lần, cho ra
+# đúng một kết quả đã biết trước từ trang thứ hai trở đi. Với giáo trình Bishop - nơi gần
+# như mọi trang đều dính chữ - đó là hàng nghìn lượt extract_text thừa.
+#
+# Vẫn giữ khả năng dò lại cho từng trang: giá trị đã hiệu chỉnh chỉ được thử TRƯỚC, nếu
+# trang đó không đạt thì vẫn dò tiếp các mức còn lại như cũ. Nhờ vậy tài liệu trộn nhiều font
+# (phụ lục scan, chương chèn từ nguồn khác) không bị đọc hỏng.
+SO_TRANG_HIEU_CHINH_X_TOLERANCE = _lay_int("SO_TRANG_HIEU_CHINH_X_TOLERANCE", 3)
+
+
+# ---------- Lọc ảnh trước khi gọi model vision ----------
+# Diện tích tối thiểu của một ảnh, tính theo TỈ LỆ so với diện tích trang.
+#
+# Ảnh nhỏ hơn mức này gần như chắc chắn là icon, bullet trang trí, logo góc trang hay đường
+# kẻ - không mang nội dung tra cứu được, nhưng mỗi cái vẫn tốn một lượt gọi model vision
+# (~1,9 giây) và một vector trong index. Ngưỡng theo TỈ LỆ chứ không theo pixel vì cùng một
+# icon sẽ có số pixel khác nhau tuỳ trang A4 hay slide 16:9.
+#
+# Đặt = 0 để tắt hẳn chốt này (nhận mọi ảnh vượt KICH_THUOC_ANH_TOI_THIEU như bản cũ).
+TY_LE_DIEN_TICH_ANH_TOI_THIEU = _lay_float("TY_LE_DIEN_TICH_ANH_TOI_THIEU", 0.015)
+
+# Tỉ lệ cạnh dài / cạnh ngắn tối đa. Vượt mức này là dải trang trí (đường kẻ ngang dưới tiêu
+# đề, thanh màu bên lề slide) chứ không phải hình có nội dung - một biểu đồ hay sơ đồ thật
+# gần như không bao giờ dẹt tới mức 12:1.
+TY_LE_CANH_ANH_TRANG_TRI = _lay_float("TY_LE_CANH_ANH_TRANG_TRI", 12.0)
+
+# Một ảnh có nội dung GIỐNG HỆT xuất hiện từ ngần này lần trở lên trong CÙNG một tài liệu
+# thì bị coi là logo/watermark và loại khỏi index.
+#
+# Vì sao đếm theo nội dung: logo trường lặp lại trên mọi slide sẽ tạo ra hàng chục chunk
+# giống hệt nhau - vừa vô dụng cho tra cứu, vừa làm loãng index đúng theo kiểu đã mô tả ở
+# _bo_ban_ghi_anh_rong. Vì sao ngưỡng 4 chứ không phải 2: một hình minh hoạ thật hoàn toàn
+# có thể được nhắc lại ở 2-3 trang (hình tổng quan mở đầu mỗi chương), và mất một hình thật
+# tệ hơn giữ thừa một logo.
+#
+# Lưu ý: việc chú thích những ảnh này KHÔNG hề tốn thêm lượt gọi model dù chúng có bị loại
+# hay không - cache vision đánh khoá theo băm nội dung ảnh nên 60 bản sao của một logo chỉ
+# tốn đúng 1 lượt (xem rag/bo_nho_dem.py). Chốt này để làm SẠCH INDEX, không phải để tiết
+# kiệm thời gian.
+SO_LAN_LAP_COI_LA_LOGO = _lay_int("SO_LAN_LAP_COI_LA_LOGO", 4)
+
+
+# ============================================================
+# NGÂN SÁCH THÍCH ỨNG LÚC TRUY VẤN
+# ============================================================
+# Không phải câu hỏi nào cũng đáng trả cùng một chi phí. "Overfitting là gì?" cần ít ứng
+# viên rerank, ít đoạn ngữ cảnh và một câu trả lời ngắn; "So sánh KNN với Naive Bayes về độ
+# phức tạp và trường hợp áp dụng" thì cần cả ba thứ đó nhiều hơn. Bản trước cấp NGÂN SÁCH
+# TỐI ĐA cho mọi câu hỏi, tức câu dễ phải trả giá của câu khó.
+#
+# ĐIỀU TUYỆT ĐỐI KHÔNG LÀM: hạ num_ctx khi ngữ cảnh quá lớn. num_ctx nhỏ hơn prompt nghĩa là
+# Ollama CẮT IM LẶNG từ đầu phần ngữ cảnh - tức xoá đúng các đoạn trích liên quan nhất (xem
+# OLLAMA_NUM_CTX). Khi ngữ cảnh vượt trần, thứ phải giảm là SỐ ĐOẠN hoặc ĐỘ DÀI MỖI ĐOẠN,
+# và phải giảm từ đoạn xếp hạng THẤP NHẤT lên.
+BAT_NGAN_SACH_THICH_UNG = _lay_bool("BAT_NGAN_SACH_THICH_UNG", True)
+
+# Số từ tối đa để một câu hỏi còn được coi là ĐƠN GIẢN. Trên mức này, hoặc khi câu hỏi chứa
+# dấu hiệu nhiều vế (xem _do_phuc_tap_cau_hoi), câu hỏi được cấp ngân sách đầy đủ.
+#
+# Đếm TỪ chứ không đếm ký tự để không thiên vị tiếng Anh (từ tiếng Việt ngắn hơn nhiều).
+SO_TU_CAU_HOI_DON_GIAN = _lay_int("SO_TU_CAU_HOI_DON_GIAN", 12)
+
+# Số ứng viên đưa vào cross-encoder cho câu hỏi ĐƠN GIẢN (câu phức tạp vẫn dùng
+# SO_UNG_VIEN_RERANK = 30).
+#
+# Vì sao vẫn giữ 12 chứ không hạ sâu hơn: rerank là tuyến phòng thủ chính chống câu hỏi
+# ngoài phạm vi (NGUONG_DIEM_RERANK_TOI_THIEU) và là thứ quyết định thứ tự TOP_K. Cắt quá
+# tay sẽ đổi chất lượng lấy tốc độ - đúng thứ nhóm tham số này tồn tại để tránh. 12 ứng viên
+# vẫn phủ trọn TOP_K=4 kèm dư địa gấp ba cho việc đảo thứ hạng.
+SO_UNG_VIEN_RERANK_DON_GIAN = _lay_int("SO_UNG_VIEN_RERANK_DON_GIAN", 12)
+
+# Trần token sinh cho câu hỏi ĐƠN GIẢN. OLLAMA_NUM_PREDICT (12000) được đặt rộng để câu trả
+# lời dài không bị cắt cụt, nhưng nó cũng là phần cửa sổ ngữ cảnh bị GIỮ CHỖ - hạ xuống cho
+# câu hỏi ngắn giúp _tinh_num_ctx() không phải nhảy lên bậc cao hơn (mỗi lần đổi bậc là một
+# lần Ollama nạp lại model, mất hàng chục giây trên CPU).
+#
+# Đây là trần, không phải mục tiêu: model tự dừng khi viết xong. Đặt 3000 vì một câu trả lời
+# có trích dẫn cho câu hỏi định nghĩa hiếm khi vượt 1000 token, còn phần suy luận của qwen3
+# thì cần dư địa.
+NUM_PREDICT_CAU_HOI_DON_GIAN = _lay_int("NUM_PREDICT_CAU_HOI_DON_GIAN", 3000)
+
+# Nén ngữ cảnh khi prompt vượt trần cửa sổ: cắt bớt đoạn trích (từ đoạn xếp hạng thấp nhất
+# lên) thay vì để Ollama cắt im lặng mất đầu ngữ cảnh.
+#
+# Đây là phần bù cho cảnh báo đã có ở _tinh_num_ctx(): cảnh báo nói cho người dùng biết cấu
+# hình đã vượt trần máy, nhưng lượt hỏi ĐANG chạy vẫn bị hỏng. Nén ngữ cảnh khiến lượt đó
+# vẫn trả lời được, với phần bị bỏ là phần ÍT LIÊN QUAN NHẤT - lựa chọn của hệ thống, ghi
+# rõ trong log, thay vì lựa chọn ngẫu nhiên của bộ cắt prompt.
+BAT_NEN_NGU_CANH = _lay_bool("BAT_NEN_NGU_CANH", True)

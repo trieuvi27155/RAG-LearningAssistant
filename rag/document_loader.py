@@ -11,8 +11,9 @@ import logging
 import re
 import unicodedata
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Dict, Iterator, List
+from typing import Dict, Iterator, List, Optional
 
 import pdfplumber
 from docx import Document
@@ -22,7 +23,15 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 import config
-from rag.image_extractor import MOC_ANH, trich_anh_docx, trich_anh_pdf, trich_anh_pptx
+from rag import bo_nho_dem, do_thoi_gian
+from rag.image_extractor import (
+    MOC_ANH,
+    loc_anh_lap_lai,
+    luu_anh_trang_pdf,
+    trich_anh_docx,
+    trich_anh_pptx,
+    ung_vien_anh_trang,
+)
 from rag.vision_caption import (
     bo_sung_chu_thich_vision,
     mo_hinh_vision_co_san,
@@ -114,7 +123,54 @@ def _trich_text(doi_tuong, x_tolerance=None) -> str:
     return doi_tuong.extract_text(x_tolerance=x_tolerance) or ""
 
 
-def _trich_text_thich_ung(doi_tuong, ten_file: str = "", so_trang=None) -> str:
+class HieuChinhXTolerance:
+    """Nhớ x_tolerance đã dò được cho MỘT tài liệu, để các trang sau không phải dò lại.
+
+    VÌ SAO CÓ LỚP NÀY. Bản trước dò lại từ đầu trên MỌI trang bị dính chữ: thử lần lượt cả
+    4 mức trong CAC_X_TOLERANCE_THU, mỗi mức là một lượt extract_text() đọc lại toàn bộ
+    trang, rồi mới chọn mức tốt nhất. Với giáo trình Bishop - nơi gần như trang nào cũng
+    dính chữ vì font Computer Modern - đó là gấp 5 lần chi phí đọc text cho cả cuốn sách,
+    để rồi lần nào cũng chọn ra đúng một giá trị.
+
+    Điều làm cho việc nhớ lại là HỢP LỆ chứ không phải mẹo tiết kiệm: nguyên nhân dính chữ
+    là FONT VÀ CỠ CHỮ của tài liệu (xem _trich_text_thich_ung), mà hai thứ đó gần như không
+    đổi trong cùng một cuốn sách. Giá trị tốt cho trang 30 gần như chắc chắn cũng tốt cho
+    trang 31.
+
+    Điều làm cho nó AN TOÀN: giá trị đã nhớ chỉ được thử TRƯỚC. Nó phải vượt qua đúng hai
+    phép kiểm tra như mọi ứng viên khác (giảm được độ dính, không làm vỡ từ thêm) thì mới
+    được dùng; không đạt thì trang đó vẫn dò đầy đủ như cũ. Nhờ vậy một tài liệu trộn nhiều
+    font - phụ lục scan, chương chèn từ nguồn khác - không bị đọc hỏng.
+    """
+
+    def __init__(self):
+        self.x_da_chon: Optional[float] = None
+        self.so_lan_dong_y = 0
+
+    @property
+    def da_hieu_chinh(self) -> bool:
+        return (
+            self.x_da_chon is not None
+            and self.so_lan_dong_y >= config.SO_TRANG_HIEU_CHINH_X_TOLERANCE
+        )
+
+    def thu_tu_uu_tien(self) -> List[float]:
+        """Thứ tự thử các mức x_tolerance cho trang tiếp theo."""
+        if self.x_da_chon is None:
+            return list(config.CAC_X_TOLERANCE_THU)
+        con_lai = [x for x in config.CAC_X_TOLERANCE_THU if x != self.x_da_chon]
+        return [self.x_da_chon] + con_lai
+
+    def ghi_nhan(self, x_tolerance: float) -> None:
+        if x_tolerance == self.x_da_chon:
+            self.so_lan_dong_y += 1
+        else:
+            self.x_da_chon, self.so_lan_dong_y = x_tolerance, 1
+
+
+def _trich_text_thich_ung(
+    doi_tuong, ten_file: str = "", so_trang=None, hieu_chinh: Optional[HieuChinhXTolerance] = None
+) -> str:
     """Đọc text một trang PDF, TỰ DÒ tham số đọc lại khi phát hiện chữ bị dính liền.
 
     Bài toán: pdfplumber quyết định "có khoảng trắng giữa 2 ký tự không" bằng x_tolerance
@@ -134,8 +190,15 @@ def _trich_text_thich_ung(doi_tuong, ten_file: str = "", so_trang=None) -> str:
          config.MUC_TANG_TU_LE_CHAP_NHAN so với bản gốc. Điều kiện thứ hai chính là cái
          chốt an toàn: nó biến việc "tôi đã tự tay kiểm tra là không hại file khác" thành
          một phép kiểm tra chạy trên mọi trang của mọi tài liệu.
-      4. Lấy mức giảm dính nhiều nhất trong số các mức được chấp nhận; không mức nào đạt
-         thì giữ nguyên bản gốc.
+      4. DỪNG SỚM ngay khi một mức đưa độ dính xuống dưới ngưỡng - không thử tiếp các mức
+         còn lại. Bản trước luôn thử hết cả 4 mức rồi mới chọn mức giảm dính NHIỀU NHẤT;
+         chênh lệch giữa "đạt ngưỡng" và "tốt nhất tuyệt đối" không đổi được nội dung đọc
+         ra một cách có ý nghĩa, trong khi cái giá là đọc lại toàn bộ trang thêm 3 lần nữa.
+      5. HIỆU CHỈNH THEO TÀI LIỆU: mức đã dùng được ở các trang trước được thử TRƯỚC TIÊN
+         (xem HieuChinhXTolerance). Với tài liệu dính chữ toàn tập, từ trang thứ tư trở đi
+         hầu như chỉ còn đúng 1 lượt đọc lại thay vì 4.
+
+    Không mức nào đạt thì giữ nguyên bản gốc.
     """
     text = _trich_text(doi_tuong)
     if not config.BAT_DOC_LAI_TRANG_DINH_CHU:
@@ -145,8 +208,9 @@ def _trich_text_thich_ung(doi_tuong, ten_file: str = "", so_trang=None) -> str:
         return text
 
     tran_tu_le = _ty_le_tu_le(text) + config.MUC_TANG_TU_LE_CHAP_NHAN
+    thu_tu = hieu_chinh.thu_tu_uu_tien() if hieu_chinh else list(config.CAC_X_TOLERANCE_THU)
     tot_nhat, ty_le_tot_nhat, x_tot_nhat = None, ty_le_goc, None
-    for x_tolerance in config.CAC_X_TOLERANCE_THU:
+    for x_tolerance in thu_tu:
         thu = _trich_text(doi_tuong, x_tolerance=x_tolerance)
         if not thu:
             continue
@@ -154,12 +218,23 @@ def _trich_text_thich_ung(doi_tuong, ten_file: str = "", so_trang=None) -> str:
         if ty_le_thu >= ty_le_tot_nhat or _ty_le_tu_le(thu) > tran_tu_le:
             continue
         tot_nhat, ty_le_tot_nhat, x_tot_nhat = thu, ty_le_thu, x_tolerance
+        if ty_le_thu <= config.TY_LE_DINH_CHU_DAT_YEU_CAU:
+            # ĐÃ SẠCH - thử tiếp chỉ tốn thêm lượt đọc trang mà không cứu thêm được chữ nào.
+            # Ngưỡng ở đây chặt hơn hẳn ngưỡng kích hoạt đọc lại, và điều đó là bắt buộc:
+            # xem config.TY_LE_DINH_CHU_DAT_YEU_CAU để biết lỗi đã gặp khi dùng chung một số.
+            break
 
     if tot_nhat is None:
         # Không mức nào vừa đỡ dính vừa không làm vỡ từ -> trang này thật sự viết liền, hoặc
         # font hỏng theo kiểu khác. Giữ bản gốc, đừng đánh đổi lấy một bản cũng hỏng.
         return text
-    logger.info(
+    if hieu_chinh is not None:
+        hieu_chinh.ghi_nhan(x_tot_nhat)
+    # Sau khi đã hiệu chỉnh xong, mỗi trang dính chữ là chuyện bình thường của tài liệu này
+    # chứ không còn là phát hiện đáng báo - hạ xuống DEBUG để log không bị một cuốn sách 700
+    # trang nhấn chìm (đây chính là thứ khiến log của lần build cũ không đọc nổi).
+    ghi_log = logger.debug if (hieu_chinh and hieu_chinh.da_hieu_chinh) else logger.info
+    ghi_log(
         "Trang %s của '%s' bị dính chữ (%.0f%%) - đọc lại với x_tolerance=%.1f, còn %.0f%%.",
         so_trang if so_trang is not None else "?", ten_file or "?",
         ty_le_goc * 100, x_tot_nhat, ty_le_tot_nhat * 100,
@@ -372,27 +447,97 @@ def _lay_client_vision():
     return _client_vision
 
 
-def _ocr_trang(trang, ten_file: str, so_trang: int) -> str:
-    """Render 1 trang PDF thành ảnh rồi nhờ model vision đọc lại.
+def _ocr_cac_trang(
+    pdf, cac_so_trang: List[int], ten_file: str, bam_tai_lieu: str
+) -> Dict[int, str]:
+    """OCR một LOẠT trang PDF cùng lúc, trả về {số trang: text đọc được}.
+
+    Ba thay đổi so với bản cũ (OCR từng trang ngay trong vòng lặp đọc), tất cả đều nhắm vào
+    cùng một chỗ đau: đây là bước đắt nhất của luồng Ingestion với tài liệu scan.
+
+      1. TRA CACHE TRƯỚC KHI RENDER. Khoá cache là (băm nội dung tài liệu, số trang, DPI) chứ
+         không phải ảnh đã render - nên khi trúng cache thì KHÔNG phải render gì cả. Render
+         một trang ở 150 DPI mất 0,2-0,4 giây; với sách scan 400 trang, khoá theo ảnh sẽ
+         khiến cache chỉ tiết kiệm được một nửa chi phí (xem bo_nho_dem.khoa_ocr).
+      2. GỌI SONG SONG. Mỗi lượt OCR là một yêu cầu HTTP tới Ollama rồi ngồi chờ; chạy
+         config.SO_WORKER_VISION lượt cùng lúc không tốn thêm CPU phía Python.
+      3. RENDER VẪN TUẦN TỰ. pypdfium2 (bộ render nền của pdfplumber) không cam kết an toàn
+         đa luồng, và render là việc thuần CPU nên thread cũng không giúp được gì. Chỉ phần
+         CHỜ MẠNG mới được song song hoá - đúng chỗ có lợi, không hơn.
 
     Ảnh tạm bị xoá ngay sau khi dùng: với sách vài trăm trang, giữ lại toàn bộ ảnh render
     sẽ ngốn hàng GB đĩa mà không dùng vào việc gì (khác với ảnh TRÍCH TỪ tài liệu ở
     image_extractor - những ảnh đó còn phải hiển thị kèm trích dẫn).
     """
+    if not cac_so_trang:
+        return {}
+
+    ket_qua: Dict[int, str] = {}
+    can_goi: List[tuple] = []  # (so_trang, đường dẫn ảnh tạm, khoá cache)
+    dung_cache = config.BAT_CACHE_INGESTION and bool(bam_tai_lieu)
+
     client = _lay_client_vision()
-    if client is None:
-        return ""
-    duong_dan_tam = config.IMAGES_DIR / f"_ocr_tam_{so_trang}.png"
-    try:
-        trang.to_image(resolution=config.DPI_RENDER_TRANG_OCR).original.save(duong_dan_tam)
-        ket_qua = ocr_trang_pdf(client, str(duong_dan_tam))
-    except Exception as loi:  # noqa: BLE001 - trang hỏng không được làm sập cả lần build
-        logger.warning("Không OCR được trang %d của '%s': %s", so_trang, ten_file, loi)
-        return ""
-    finally:
-        duong_dan_tam.unlink(missing_ok=True)
-    if ket_qua:
-        logger.info("Đã OCR lại trang %d của '%s' (%d ký tự).", so_trang, ten_file, len(ket_qua))
+    for so_trang in cac_so_trang:
+        khoa = bo_nho_dem.khoa_ocr(bam_tai_lieu, so_trang) if dung_cache else None
+        if khoa:
+            da_co = bo_nho_dem.kho_ocr.lay_text(khoa)
+            if da_co is not None:
+                ket_qua[so_trang] = da_co
+                continue
+        if client is None:
+            continue  # model vision chưa sẵn sàng - đã cảnh báo một lần ở _lay_client_vision
+        duong_dan_tam = config.IMAGES_DIR / f"_ocr_tam_{so_trang}.png"
+        try:
+            with do_thoi_gian.do("ocr_render_trang"):
+                trang = pdf.pages[so_trang - 1]
+                trang.to_image(resolution=config.DPI_RENDER_TRANG_OCR).original.save(duong_dan_tam)
+        except Exception as loi:  # noqa: BLE001 - trang hỏng không được làm sập cả lần build
+            logger.warning("Không render được trang %d của '%s': %s", so_trang, ten_file, loi)
+            duong_dan_tam.unlink(missing_ok=True)
+            continue
+        can_goi.append((so_trang, duong_dan_tam, khoa))
+
+    if not can_goi:
+        if ket_qua:
+            logger.info("OCR: cả %d trang đều lấy lại được từ cache.", len(ket_qua))
+        return ket_qua
+
+    so_worker = max(1, min(config.SO_WORKER_VISION, len(can_goi)))
+    logger.info(
+        "OCR '%s': %d trang cần đọc lại bằng model vision (%d trang lấy từ cache), %d luồng.",
+        ten_file, len(can_goi), len(ket_qua), so_worker,
+    )
+
+    def _chay(viec):
+        so_trang, duong_dan_tam, khoa = viec
+        try:
+            text = ocr_trang_pdf(client, str(duong_dan_tam))
+        except Exception as loi:  # noqa: BLE001
+            logger.warning("Không OCR được trang %d của '%s': %s", so_trang, ten_file, loi)
+            text = ""
+        finally:
+            duong_dan_tam.unlink(missing_ok=True)
+        # Chỉ ghi cache khi ĐỌC ĐƯỢC. Ghi cả kết quả rỗng sẽ đóng băng một lần thất bại tạm
+        # thời (Ollama đang tắt, model chưa nạp xong) thành kết quả vĩnh viễn.
+        if text and khoa:
+            bo_nho_dem.kho_ocr.luu_text(khoa, text)
+        return so_trang, text
+
+    with do_thoi_gian.do("ocr_goi_model"):
+        if so_worker == 1:
+            cac_ket_qua = [_chay(v) for v in can_goi]
+        else:
+            with ThreadPoolExecutor(max_workers=so_worker) as bo_chay:
+                cac_ket_qua = list(bo_chay.map(_chay, can_goi))
+
+    so_doc_duoc = 0
+    for so_trang, text in cac_ket_qua:
+        if text:
+            ket_qua[so_trang] = text
+            so_doc_duoc += 1
+    logger.info(
+        "Đã OCR lại %d/%d trang của '%s'.", so_doc_duoc, len(can_goi), ten_file,
+    )
     return ket_qua
 
 
@@ -434,7 +579,9 @@ def _khoi_bang(bang: List[List]) -> str:
     return f"\n\n{MOC_BANG_MO}\n{markdown}\n{MOC_BANG_DONG}\n" if markdown else ""
 
 
-def _text_pdf_khong_ke_bang(trang, cac_bang, ten_file: str = "") -> str:
+def _text_pdf_khong_ke_bang(
+    trang, cac_bang, ten_file: str = "", hieu_chinh: Optional[HieuChinhXTolerance] = None
+) -> str:
     """Lấy văn xuôi của trang, ĐÃ LOẠI vùng chiếm bởi bảng.
 
     Nếu không loại, cùng một bảng sẽ vào index hai lần dưới hai dạng: bản Markdown sạch và
@@ -449,13 +596,13 @@ def _text_pdf_khong_ke_bang(trang, cac_bang, ten_file: str = "") -> str:
         vung = trang
         for bang in cac_bang:
             vung = vung.outside_bbox(bang.bbox)
-        return _trich_text_thich_ung(vung, ten_file, so_trang)
+        return _trich_text_thich_ung(vung, ten_file, so_trang, hieu_chinh)
     except (ValueError, TypeError) as loi:
         logger.warning(
             "Không loại được vùng bảng ở trang %s (%s) - đọc cả trang, bảng có thể bị lặp.",
             so_trang, type(loi).__name__,
         )
-        return _trich_text_thich_ung(trang, ten_file, so_trang)
+        return _trich_text_thich_ung(trang, ten_file, so_trang, hieu_chinh)
 
 
 def _cac_cot_cua_trang(trang) -> List[tuple]:
@@ -526,7 +673,10 @@ def _cac_cot_cua_trang(trang) -> List[tuple]:
     return [(ranh_gioi[i], ranh_gioi[i + 1]) for i in range(len(ranh_gioi) - 1)]
 
 
-def _text_theo_cot(trang, cac_cot: List[tuple], ten_file: str, so_trang: int) -> str:
+def _text_theo_cot(
+    trang, cac_cot: List[tuple], ten_file: str, so_trang: int,
+    hieu_chinh: Optional[HieuChinhXTolerance] = None,
+) -> str:
     """Đọc từng cột riêng rồi nối lại theo thứ tự trái -> phải (thứ tự đọc của người)."""
     cac_phan = []
     for x0, x1 in cac_cot:
@@ -534,84 +684,186 @@ def _text_theo_cot(trang, cac_cot: List[tuple], ten_file: str, so_trang: int) ->
             vung = trang.crop((x0, trang.bbox[1], x1, trang.bbox[3]))
         except (ValueError, TypeError):
             continue
-        phan = _trich_text_thich_ung(vung, ten_file, so_trang).strip()
+        phan = _trich_text_thich_ung(vung, ten_file, so_trang, hieu_chinh).strip()
         if phan:
             cac_phan.append(phan)
     return "\n\n".join(cac_phan)
 
 
+def _doc_mot_trang_pdf(trang, ten_file: str, so_trang: int, hieu_chinh) -> str:
+    """Toàn bộ việc đọc TEXT của một trang PDF, gói lại thành đúng MỘT lượt.
+
+    Ba đường đọc (có bảng / nhiều cột / thường) loại trừ nhau, nên một trang chỉ đi qua đúng
+    một đường. Thay đổi so với bản trước tuy nhỏ mà đáng kể: kết quả `extract()` của mỗi
+    bảng được dùng LẠI thay vì gọi lần thứ hai lúc dựng khối bảng. Trích xuất một bảng là
+    thao tác đắt (dò đường kẻ, gom ô, ghép text từng ô), và nó đang chạy hai lần cho mọi
+    bảng của mọi trang chỉ vì hai chỗ gọi nằm cách nhau ba dòng.
+    """
+    # Lọc bảng dò nhầm NGAY TẠI ĐÂY, trước khi loại vùng bảng khỏi text thường. Nếu lọc muộn
+    # hơn (lúc dựng khối bảng), phần text nằm trong vùng bảng giả đã bị
+    # _text_pdf_khong_ke_bang() bóc đi rồi mà không được bọc lại - tức MẤT HẲN nội dung, tệ
+    # hơn hẳn so với việc chỉ bọc sai định dạng.
+    cac_bang = []
+    for bang in trang.find_tables():
+        cac_hang = bang.extract()
+        if _la_bang_that(cac_hang):
+            cac_bang.append((bang, cac_hang))
+
+    if cac_bang:
+        noidung = _text_pdf_khong_ke_bang(
+            trang, [b for b, _ in cac_bang], ten_file, hieu_chinh
+        )
+        return noidung + "".join(_khoi_bang(cac_hang) for _, cac_hang in cac_bang)
+
+    # Dò bố cục nhiều cột TRƯỚC khi đọc: đọc ngang một trang 2 cột sẽ trộn câu của hai cột
+    # vào nhau, hỏng ngay từ khâu đầu tiên (xem _cac_cot_cua_trang). Chỉ làm khi trang không
+    # có bảng - bảng vốn đã được tách vùng riêng, và một bảng nhiều cột sẽ khiến phép dò rãnh
+    # hiểu nhầm thành bố cục nhiều cột.
+    cac_cot = _cac_cot_cua_trang(trang) if config.BAT_DOC_THEO_COT else []
+    if cac_cot:
+        logger.info(
+            "Trang %d của '%s' có bố cục %d cột - đọc từng cột riêng.",
+            so_trang, ten_file, len(cac_cot),
+        )
+        return _text_theo_cot(trang, cac_cot, ten_file, so_trang, hieu_chinh)
+    return _trich_text_thich_ung(trang, ten_file, so_trang, hieu_chinh)
+
+
 def doc_pdf(duong_dan: Path) -> List[Dict]:
-    """Đọc từng trang PDF bằng pdfplumber, trả về list dict {nguon, trang, noidung}."""
-    ket_qua = []
-    # Những trang mà OCR đã lấy ra được CHỮ THẬT. Dùng để quyết định có trích ảnh của trang
-    # đó nữa hay không: nếu OCR đọc ra cả một trang chữ thì "ảnh" của trang chính là ảnh chụp
-    # trang chữ ấy - trích thêm nó ra chỉ tạo một chunk hình vô nghĩa cho mỗi trang. Đây là
-    # tín hiệu ĐO ĐƯỢC, thay cho việc đoán qua kích thước ảnh (xem _la_anh_chup_ca_trang).
-    cac_trang_ocr_ra_chu = set()
+    """Đọc từng trang PDF bằng pdfplumber, trả về list dict {nguon, trang, noidung}.
+
+    LUỒNG MỘT-LƯỢT-DUYỆT, chia 4 pha. Bản trước duyệt toàn bộ PDF HAI lần (một lần đọc text,
+    một lần nữa trong trich_anh_pdf để trích ảnh - lần thứ hai còn gọi lại extract_text() cho
+    từng trang chỉ để lấy dòng chú thích), và trong lần thứ nhất thì mỗi trang có thể bị đọc
+    tới 5 lần vì phép dò x_tolerance. Với giáo trình Bishop, đó là gốc rễ của việc "cùng một
+    tài liệu bị quét nhiều lần" mà log đã cho thấy.
+
+      Pha 1 (tuần tự, MỘT lượt qua các trang): đọc text, dò bảng/cột, nhận diện tiêu đề,
+             liệt kê ứng viên ảnh (chưa render), đánh dấu trang cần OCR. Sau mỗi trang gọi
+             flush_cache() để nhả bộ nhớ - một cuốn sách 700 trang giữ hết đối tượng của mọi
+             trang trong RAM là chuyện không cần thiết.
+      Pha 2: OCR các trang đã đánh dấu - tra cache trước, phần còn lại gọi model song song.
+      Pha 3: gộp kết quả OCR, dọn watermark, chuẩn hoá, loại trang rỗng / trang mục lục.
+      Pha 4: render và lưu những ảnh được giữ lại (chỉ những trang thật sự có ảnh mới phải
+             đọc lại), rồi loại các hình lặp lại kiểu logo/watermark.
+
+    Thứ tự này giữ NGUYÊN mọi quy tắc nội dung của bản trước - kể cả quy tắc tinh tế nhất:
+    ảnh phủ kín một trang chỉ bị loại khi OCR đã CHỨNG MINH trang đó là ảnh chụp một trang
+    chữ, chứ không phải khi đoán qua kích thước (xem _la_anh_cua_trang_chu).
+    """
+    ten_file = duong_dan.name
+    hieu_chinh = HieuChinhXTolerance()
+    bam_tai_lieu = (
+        bo_nho_dem.bam_file(duong_dan) if config.BAT_CACHE_INGESTION else ""
+    )
+    cac_trang_tho: List[Dict] = []
+    ung_vien_anh: Dict[int, list] = {}
+
     with pdfplumber.open(duong_dan) as pdf:
+        # ---------- PHA 1: đọc text, một lượt duy nhất ----------
         for so_trang, trang in enumerate(pdf.pages, start=1):
-            # Lọc bảng dò nhầm NGAY TẠI ĐÂY, trước khi loại vùng bảng khỏi text thường.
-            # Nếu lọc muộn hơn (lúc dựng khối bảng), phần text nằm trong vùng bảng giả đã bị
-            # _text_pdf_khong_ke_bang() bóc đi rồi mà không được bọc lại - tức MẤT HẲN nội
-            # dung, tệ hơn hẳn so với việc chỉ bọc sai định dạng.
-            cac_bang = [b for b in trang.find_tables() if _la_bang_that(b.extract())]
-            if cac_bang:
-                noidung = _text_pdf_khong_ke_bang(trang, cac_bang, duong_dan.name)
-                noidung += "".join(_khoi_bang(b.extract()) for b in cac_bang)
-            else:
-                # Dò bố cục nhiều cột TRƯỚC khi đọc: đọc ngang một trang 2 cột sẽ trộn câu
-                # của hai cột vào nhau, hỏng ngay từ khâu đầu tiên (xem _cac_cot_cua_trang).
-                # Chỉ làm khi trang không có bảng - bảng vốn đã được tách vùng riêng, và một
-                # bảng nhiều cột sẽ khiến phép dò rãnh hiểu nhầm thành bố cục nhiều cột.
-                cac_cot = _cac_cot_cua_trang(trang) if config.BAT_DOC_THEO_COT else []
-                if cac_cot:
-                    logger.info(
-                        "Trang %d của '%s' có bố cục %d cột - đọc từng cột riêng.",
-                        so_trang, duong_dan.name, len(cac_cot),
-                    )
-                    noidung = _text_theo_cot(trang, cac_cot, duong_dan.name, so_trang)
-                else:
-                    noidung = _trich_text_thich_ung(trang, duong_dan.name, so_trang)
+            with do_thoi_gian.do("pdf_doc_text_trang"):
+                noidung = _doc_mot_trang_pdf(trang, ten_file, so_trang, hieu_chinh)
 
             # OCR DỰ PHÒNG: chỉ chạy khi việc trích xuất text đã THẤT BẠI (chữ ra thành mã
-            # (cid:NN) do font thiếu bảng ánh xạ, hoặc trang scan không có chữ). Đặt ở đây -
-            # sau khi đã có text để đánh giá, trước khi dọn dẹp - vì phải nhìn thấy mã
+            # (cid:NN) do font thiếu bảng ánh xạ, hoặc trang scan không có chữ). Quyết định ở
+            # đây - sau khi đã có text để đánh giá, trước khi dọn dẹp - vì phải nhìn thấy mã
             # (cid:) nguyên vẹn mới nhận ra được là trang hỏng.
-            if config.BAT_OCR_DU_PHONG and trang_can_ocr(noidung, len(trang.images)):
-                noidung_ocr = _ocr_trang(trang, duong_dan.name, so_trang)
-                if noidung_ocr:
-                    noidung = noidung_ocr
-                    if len(noidung_ocr.split()) >= config.SO_TU_TOI_THIEU_TRANG_CO_CHU:
-                        # OCR đọc ra cả một trang chữ -> đây là trang scan VĂN BẢN, không
-                        # phải một trang hình. Ảnh của nó là ảnh chụp chính đám chữ vừa đọc
-                        # được, nên không trích ra làm hình nữa.
-                        cac_trang_ocr_ra_chu.add(so_trang)
+            can_ocr = config.BAT_OCR_DU_PHONG and trang_can_ocr(noidung, len(trang.images))
 
             if config.BAT_NHAN_DIEN_TIEU_DE:
-                for dong_tieu_de in _phat_hien_tieu_de_pdf(trang):
+                with do_thoi_gian.do("pdf_nhan_dien_tieu_de"):
+                    cac_tieu_de = _phat_hien_tieu_de_pdf(trang)
+                for dong_tieu_de in cac_tieu_de:
                     # Thay đúng dòng đó bằng bản có dấu tiêu đề. Dùng thay-thế-theo-dòng
                     # thay vì dựng lại cả trang để không phá thứ tự nội dung gốc.
                     noidung = noidung.replace(dong_tieu_de, _danh_dau_tieu_de(dong_tieu_de), 1)
+
+            if config.BAT_TRICH_ANH:
+                cac_ung_vien = ung_vien_anh_trang(trang)
+                if cac_ung_vien:
+                    ung_vien_anh[so_trang] = cac_ung_vien
+
+            cac_trang_tho.append(
+                {"so_trang": so_trang, "noidung": noidung, "can_ocr": can_ocr}
+            )
+            # Nhả các đối tượng đã phân tích của trang này. Pha 4 chỉ đọc lại đúng những
+            # trang có ảnh cần render, nên với tài liệu thuần chữ thì không trang nào phải
+            # phân tích lần thứ hai.
+            trang.flush_cache()
+
+        # ---------- PHA 2: OCR song song những trang đã đánh dấu ----------
+        ket_qua_ocr = _ocr_cac_trang(
+            pdf, [t["so_trang"] for t in cac_trang_tho if t["can_ocr"]], ten_file, bam_tai_lieu
+        )
+
+        # ---------- PHA 3: gộp OCR + dọn dẹp + lọc ----------
+        ket_qua: List[Dict] = []
+        # Những trang mà OCR đã lấy ra được CHỮ THẬT. Dùng để quyết định có trích ảnh của
+        # trang đó nữa hay không: nếu OCR đọc ra cả một trang chữ thì "ảnh" của trang chính
+        # là ảnh chụp trang chữ ấy - trích thêm nó ra chỉ tạo một chunk hình vô nghĩa cho mỗi
+        # trang. Đây là tín hiệu ĐO ĐƯỢC, thay cho việc đoán qua kích thước ảnh.
+        cac_trang_ocr_ra_chu = set()
+        noi_dung_theo_trang: Dict[int, str] = {}
+        for tho in cac_trang_tho:
+            so_trang = tho["so_trang"]
+            noidung = tho["noidung"]
+            noidung_ocr = ket_qua_ocr.get(so_trang, "")
+            if noidung_ocr:
+                noidung = noidung_ocr
+                if len(noidung_ocr.split()) >= config.SO_TU_TOI_THIEU_TRANG_CO_CHU:
+                    cac_trang_ocr_ra_chu.add(so_trang)
+
             noidung = _don_dep_watermark(noidung)
             noidung = _chuan_hoa_nfc(noidung).strip()
+            noi_dung_theo_trang[so_trang] = noidung
             if not noidung:
                 logger.warning(
                     "Trang %d của '%s' không có text (có thể là ảnh scan) - bỏ qua.",
-                    so_trang,
-                    duong_dan.name,
+                    so_trang, ten_file,
                 )
                 continue
             if _la_trang_muc_luc(noidung):
                 logger.warning(
                     "Trang %d của '%s' có vẻ là trang Mục lục - bỏ qua (không phải nội "
                     "dung thật, dễ gây nhiễu retrieval).",
-                    so_trang,
-                    duong_dan.name,
+                    so_trang, ten_file,
                 )
                 continue
-            ket_qua.append({"nguon": duong_dan.name, "trang": so_trang, "noidung": noidung})
-        if config.BAT_TRICH_ANH:
-            ket_qua.extend(trich_anh_pdf(duong_dan, pdf, cac_trang_ocr_ra_chu))
+            ket_qua.append({"nguon": ten_file, "trang": so_trang, "noidung": noidung})
+
+        # ---------- PHA 4: render những ảnh được giữ lại ----------
+        if config.BAT_TRICH_ANH and ung_vien_anh:
+            with do_thoi_gian.do("pdf_trich_anh"):
+                cac_ban_ghi_anh, so_anh_toan_trang = [], 0
+                for so_trang, cac_ung_vien in ung_vien_anh.items():
+                    la_trang_scan_chu = so_trang in cac_trang_ocr_ra_chu
+                    cac_bbox = []
+                    for bbox, phu_ca_trang in cac_ung_vien:
+                        if la_trang_scan_chu and phu_ca_trang:
+                            # Ảnh chụp CẢ TRANG của một PDF scan: nội dung thật của nó là
+                            # CHỮ, và chữ đó đã được OCR lấy ra ở pha 2. Trích thêm một
+                            # "hình" nữa chỉ tạo một chunk rác cho mỗi trang, tốn thêm một
+                            # lượt model vision cho mỗi trang, và khiến trích dẫn trỏ vào
+                            # "hình" thay vì vào đoạn chữ mà câu trả lời thật sự dùng.
+                            so_anh_toan_trang += 1
+                            continue
+                        cac_bbox.append(bbox)
+                    if not cac_bbox:
+                        continue
+                    cac_ban_ghi_anh.extend(
+                        luu_anh_trang_pdf(
+                            ten_file, pdf.pages[so_trang - 1], so_trang, cac_bbox,
+                            noi_dung_theo_trang.get(so_trang, "").split("\n"),
+                        )
+                    )
+                    pdf.pages[so_trang - 1].flush_cache()
+                if so_anh_toan_trang:
+                    logger.info(
+                        "Bỏ qua %d ảnh chụp cả trang ở '%s' (PDF scan - nội dung của chúng "
+                        "là chữ, đã được OCR đọc ra).", so_anh_toan_trang, ten_file,
+                    )
+                ket_qua.extend(loc_anh_lap_lai(cac_ban_ghi_anh, ten_file))
     return ket_qua
 
 
@@ -696,7 +948,10 @@ def doc_pptx(duong_dan: Path) -> List[Dict]:
             continue
         ket_qua.append({"nguon": duong_dan.name, "trang": so_slide, "noidung": noidung})
     if config.BAT_TRICH_ANH:
-        ket_qua.extend(trich_anh_pptx(duong_dan, trinh_chieu))
+        with do_thoi_gian.do("pptx_trich_anh"):
+            ket_qua.extend(
+                loc_anh_lap_lai(trich_anh_pptx(duong_dan, trinh_chieu), duong_dan.name)
+            )
     return ket_qua
 
 
@@ -794,7 +1049,10 @@ def doc_docx(duong_dan: Path) -> List[Dict]:
             continue
         ket_qua.append({"nguon": duong_dan.name, "trang": so_trang, "noidung": noidung})
     if config.BAT_TRICH_ANH:
-        ket_qua.extend(trich_anh_docx(duong_dan, document))
+        with do_thoi_gian.do("docx_trich_anh"):
+            ket_qua.extend(
+                loc_anh_lap_lai(trich_anh_docx(duong_dan, document), duong_dan.name)
+            )
     return ket_qua
 
 
@@ -808,6 +1066,71 @@ def doc_tai_lieu(duong_dan: Path) -> List[Dict]:
     if duoi == ".docx":
         return doc_docx(duong_dan)
     raise ValueError(f"Định dạng không hỗ trợ: '{duoi}' (chỉ hỗ trợ {CAC_DUOI_HO_TRO})")
+
+
+def doc_tai_lieu_hoan_chinh(duong_dan: Path) -> List[Dict]:
+    """Đọc 1 file và làm TRỌN VẸN mọi bước sinh nội dung: đọc + chú thích ảnh + bỏ ảnh rỗng.
+
+    Đây là ĐƠN VỊ ĐƯỢC CACHE, và ranh giới đó phải nằm đúng ở đây chứ không sớm hơn. Nếu chỉ
+    cache kết quả đọc thô rồi vẫn chạy lại bước chú thích vision mỗi lần, ta sẽ cache đúng
+    phần rẻ và bỏ qua phần đắt - benchmark của project cho thấy chú thích ảnh tốn ~1,9 giây
+    mỗi hình, tức phần lớn thời gian của một lần build với tài liệu nhiều hình.
+
+    Bước chú thích vision chuyển từ "gom toàn bộ ảnh của cả corpus rồi xử lý một lượt" sang
+    "làm xong từng tài liệu": đó là điều kiện để kết quả của một tài liệu tự nó đầy đủ và
+    cache được độc lập. Đổi lại, tiến độ nay báo theo từng tài liệu thay vì theo cả corpus -
+    và đó lại là cách báo đúng hơn, vì với index tăng dần thì đa số tài liệu không được xử
+    lý lại chút nào.
+    """
+    ket_qua = doc_tai_lieu(duong_dan)
+    if config.BAT_TRICH_ANH and config.BAT_CHU_THICH_ANH:
+        cac_anh = [m for m in ket_qua if m.get("loai_noi_dung") == "anh"]
+        if cac_anh:
+            logger.info("'%s': %d ảnh cần chú thích.", duong_dan.name, len(cac_anh))
+            bo_sung_chu_thich_vision(cac_anh)
+    return _bo_ban_ghi_anh_rong(ket_qua)
+
+
+def _cache_con_du_anh(cac_trang: List[Dict]) -> bool:
+    """Mọi file ảnh mà bản ghi trong cache trỏ tới còn tồn tại không?
+
+    Cần kiểm tra vì hai phần dữ liệu nằm ở hai chỗ khác nhau: nội dung nằm trong cache
+    (data/cache), còn file ảnh nằm ở data/images. Xoá data/images mà giữ cache sẽ cho ra một
+    index "hợp lệ" với các trích dẫn trỏ vào ảnh không còn tồn tại - hỏng đúng ở chỗ người
+    dùng nhìn thấy. Coi đó là cache trượt và đọc lại là cách xử lý rẻ và đúng.
+    """
+    return all(
+        Path(m["duong_dan_anh"]).exists()
+        for m in cac_trang
+        if m.get("loai_noi_dung") == "anh" and m.get("duong_dan_anh")
+    )
+
+
+def doc_tai_lieu_co_cache(duong_dan: Path) -> List[Dict]:
+    """doc_tai_lieu_hoan_chinh() nhưng lấy lại kết quả cũ khi nội dung file không đổi.
+
+    Khoá cache = băm nội dung file + vân tay cấu hình đọc (xem rag/bo_nho_dem.py). Đây là
+    thứ biến câu "tài liệu đã xử lý rồi thì không được xử lý lại" thành hành vi thật, kể cả
+    khi người dùng đổi tên file, chuyển thư mục, hay build lại index vì một tài liệu KHÁC
+    vừa thay đổi.
+    """
+    if not config.BAT_CACHE_INGESTION:
+        return doc_tai_lieu_hoan_chinh(duong_dan)
+
+    khoa = bo_nho_dem.khoa_tai_lieu(duong_dan)
+    da_co = bo_nho_dem.kho_tai_lieu.lay_json(khoa)
+    if da_co is not None and _cache_con_du_anh(da_co):
+        logger.info(
+            "'%s': lấy lại %d bản ghi từ cache (nội dung file không đổi).",
+            duong_dan.name, len(da_co),
+        )
+        do_thoi_gian.ghi_nhan("tai_lieu_trung_cache", 0.0)
+        return da_co
+
+    with do_thoi_gian.do("tai_lieu_doc_moi"):
+        ket_qua = doc_tai_lieu_hoan_chinh(duong_dan)
+    bo_nho_dem.kho_tai_lieu.luu_json(khoa, ket_qua)
+    return ket_qua
 
 
 def _bo_ban_ghi_anh_rong(cac_trang: List[Dict]) -> List[Dict]:
@@ -843,7 +1166,7 @@ def _bo_ban_ghi_anh_rong(cac_trang: List[Dict]) -> List[Dict]:
     return giu
 
 
-def _canh_bao_tai_lieu_khong_doc_duoc(cac_trang: List[Dict], thu_muc: Path) -> None:
+def _canh_bao_tai_lieu_khong_doc_duoc(cac_trang: List[Dict], cac_duong_dan: List[Path]) -> None:
     """Cảnh báo to khi một tài liệu gần như không đọc được chữ nào.
 
     Vì sao cần: build index "thành công" với một cuốn sách không đọc được là kiểu hỏng tệ
@@ -859,9 +1182,7 @@ def _canh_bao_tai_lieu_khong_doc_duoc(cac_trang: List[Dict], thu_muc: Path) -> N
         if m.get("loai_noi_dung") != "anh":
             theo_nguon[m["nguon"]] = theo_nguon.get(m["nguon"], 0) + len(m["noidung"])
 
-    for duong_dan in sorted(thu_muc.glob("*")):
-        if duong_dan.suffix.lower() not in CAC_DUOI_HO_TRO:
-            continue
+    for duong_dan in cac_duong_dan:
         so_ky_tu = theo_nguon.get(duong_dan.name, 0)
         if so_ky_tu >= config.SO_KY_TU_TOI_THIEU_MOT_TAI_LIEU:
             continue
@@ -874,15 +1195,28 @@ def _canh_bao_tai_lieu_khong_doc_duoc(cac_trang: List[Dict], thu_muc: Path) -> N
         )
 
 
-def doc_thu_muc(thu_muc: Path) -> List[Dict]:
-    """Đọc toàn bộ file PDF/PPTX/DOCX trong 1 thư mục, dùng cho luồng Ingestion."""
+def cac_file_tai_lieu(thu_muc: Path) -> List[Path]:
+    """Danh sách file tài liệu hỗ trợ được trong thư mục, thứ tự ổn định.
+
+    Tách ra thành hàm riêng vì luồng index tăng dần (app.py) cần đúng danh sách này để đối
+    chiếu băm nội dung, mà không nên tự viết lại phép lọc phần đuôi file ở một chỗ thứ hai.
+    """
+    return [d for d in sorted(thu_muc.glob("*")) if d.suffix.lower() in CAC_DUOI_HO_TRO]
+
+
+def doc_nhieu_file(cac_duong_dan: List[Path]) -> List[Dict]:
+    """Đọc một DANH SÁCH file cụ thể (có cache), gom lỗi lại thay vì để một file hỏng
+    làm sập cả lần build.
+
+    Nhận danh sách thay vì thư mục là điều kiện để index tăng dần hoạt động: khi chỉ có 1
+    trong 11 tài liệu thay đổi, app.py chỉ đưa đúng file đó vào đây.
+    """
     ket_qua = []
     cac_file_loi = []
-    for duong_dan in sorted(thu_muc.glob("*")):
-        if duong_dan.suffix.lower() not in CAC_DUOI_HO_TRO:
-            continue
+    for thu_tu, duong_dan in enumerate(cac_duong_dan, start=1):
+        logger.info("[%d/%d] Đang xử lý '%s'...", thu_tu, len(cac_duong_dan), duong_dan.name)
         try:
-            ket_qua.extend(doc_tai_lieu(duong_dan))
+            ket_qua.extend(doc_tai_lieu_co_cache(duong_dan))
         except Exception as loi:  # noqa: BLE001 - xem giải thích ngay dưới
             # MỘT FILE HỎNG KHÔNG ĐƯỢC LÀM SẬP CẢ LẦN BUILD. Trước đây một file PDF đặt mật
             # khẩu, tải về dở dang, hay dùng cấu trúc lạ sẽ ném lỗi và giết luôn toàn bộ luồng
@@ -911,14 +1245,16 @@ def doc_thu_muc(thu_muc: Path) -> List[Dict]:
             ", ".join(ten for ten, _ in cac_file_loi),
         )
 
-    # Chú thích ảnh bằng model vision làm Ở ĐÂY - sau khi đã đọc xong TOÀN BỘ tài liệu, thay
-    # vì bên trong từng hàm doc_pdf/doc_pptx/doc_docx. Lý do: gom hết ảnh lại rồi xử lý một
-    # lượt cho phép báo tiến độ "ảnh i/n" đúng nghĩa (một lần build có thể tốn hàng chục
-    # phút), và giữ 3 hàm đọc tài liệu chỉ làm đúng việc đọc - không hàm nào phải biết tới
-    # Ollama. Bước này tự bỏ qua khi tắt hoặc khi model chưa được pull (xem vision_caption).
-    if config.BAT_TRICH_ANH and config.BAT_CHU_THICH_ANH:
-        bo_sung_chu_thich_vision([m for m in ket_qua if m.get("loai_noi_dung") == "anh"])
-
-    ket_qua = _bo_ban_ghi_anh_rong(ket_qua)
-    _canh_bao_tai_lieu_khong_doc_duoc(ket_qua, thu_muc)
+    # Chú thích ảnh bằng model vision KHÔNG còn nằm ở đây mà đã chuyển vào
+    # doc_tai_lieu_hoan_chinh() - tức làm xong trọn vẹn từng tài liệu một. Bản trước gom ảnh
+    # của cả corpus lại rồi xử lý một lượt để báo được tiến độ "ảnh i/n"; nhưng khi kết quả
+    # đọc được đem đi cache theo từng tài liệu thì một bản ghi ảnh CHƯA có chú thích là một
+    # bản ghi chưa hoàn chỉnh - cache nó lại nghĩa là đóng băng một kết quả thiếu. Tiến độ
+    # nay báo theo tài liệu, hợp với thực tế là đa số tài liệu không được xử lý lại.
+    _canh_bao_tai_lieu_khong_doc_duoc(ket_qua, cac_duong_dan)
     return ket_qua
+
+
+def doc_thu_muc(thu_muc: Path) -> List[Dict]:
+    """Đọc toàn bộ file PDF/PPTX/DOCX trong 1 thư mục, dùng cho luồng Ingestion."""
+    return doc_nhieu_file(cac_file_tai_lieu(thu_muc))

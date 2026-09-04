@@ -388,7 +388,47 @@ def _uoc_luong_so_token(*cac_phan: str) -> int:
     return int(sum(len(p) for p in cac_phan) / config.SO_KY_TU_MOI_TOKEN_UOC_LUONG) + 1
 
 
-def _tinh_num_ctx(so_token_prompt: int) -> int:
+# Dấu hiệu câu hỏi NHIỀU VẾ - cần nhiều đoạn trích và câu trả lời dài hơn hẳn. Chọn theo
+# HÀNH ĐỘNG người hỏi yêu cầu ("so sánh", "liệt kê", "phân biệt") chứ không theo chủ đề: chủ
+# đề thì vô hạn và phụ thuộc corpus, còn tập động từ yêu cầu thì nhỏ và ổn định.
+_MAU_CAU_HOI_NHIEU_VE = re.compile(
+    r"\bso\s*sánh\b|\bphân\s*biệt\b|\bkhác\s*(nhau|biệt)\b|\bliệt\s*kê\b|\bcác\s+bước\b"
+    r"|\bưu\s*(và\s*)?nhược\b|\bvì\s*sao\b|\btại\s*sao\b|\bmối\s*(liên\s*hệ|quan\s*hệ)\b"
+    r"|\bcompare\b|\bdifference\b|\bversus\b|\bvs\.?\b|\blist\b|\bsteps\b|\bpros\s+and\s+cons\b"
+    r"|\bwhy\b|\brelationship\b",
+    re.IGNORECASE,
+)
+
+
+def la_cau_hoi_phuc_tap(cau_hoi: str) -> bool:
+    """Câu hỏi này có xứng đáng được cấp NGÂN SÁCH ĐẦY ĐỦ không?
+
+    Vì sao cần phân biệt: "Overfitting là gì?" và "So sánh KNN với Naive Bayes về độ phức
+    tạp, dữ liệu cần thiết và trường hợp nên dùng" đang được đối xử y hệt nhau - cùng 30 ứng
+    viên đưa vào cross-encoder, cùng trần sinh 12000 token, cùng cỡ cửa sổ ngữ cảnh. Câu thứ
+    nhất không dùng hết phần nào trong số đó, nhưng vẫn phải chờ nó.
+
+    BA DẤU HIỆU, chỉ cần khớp một là được coi là phức tạp:
+      1. Dài hơn config.SO_TU_CAU_HOI_DON_GIAN từ - câu hỏi dài thường mang nhiều ràng buộc.
+      2. Chứa động từ yêu cầu nhiều vế (so sánh, liệt kê, vì sao...).
+      3. Là câu KIỂM CHỨNG một khẳng định - loại này bật cả chế độ suy luận của model và
+         bắt buộc phải trích nguyên văn căn cứ, nên luôn cần ngân sách đầy đủ (§5.29).
+
+    Cố ý nghiêng về phía CẤP DƯ: đoán nhầm một câu phức tạp thành đơn giản thì câu trả lời có
+    thể thiếu ý hoặc bị cắt cụt - một lỗi người dùng nhìn thấy. Đoán nhầm chiều ngược lại chỉ
+    làm câu hỏi đó chạy chậm bằng đúng bản cũ, tức không tệ hơn hiện trạng chút nào. Hai loại
+    sai này không ngang giá, nên ngưỡng cũng không được đặt ở giữa.
+    """
+    if not config.BAT_NGAN_SACH_THICH_UNG:
+        return True
+    if len(cau_hoi.split()) > config.SO_TU_CAU_HOI_DON_GIAN:
+        return True
+    if _MAU_CAU_HOI_NHIEU_VE.search(cau_hoi):
+        return True
+    return la_cau_hoi_kiem_chung(cau_hoi)
+
+
+def _tinh_num_ctx(so_token_prompt: int, num_predict: Optional[int] = None) -> int:
     """Cửa sổ ngữ cảnh cần cấp cho một prompt dài `so_token_prompt` token.
 
     Vì sao TÍNH ĐỘNG chứ không đặt một hằng số rồi thôi: hằng số đủ dùng hôm nay sẽ âm thầm
@@ -402,8 +442,16 @@ def _tinh_num_ctx(so_token_prompt: int) -> int:
     model (mất hàng chục giây trên CPU). Vì vậy giá trị được làm tròn lên theo thang gấp đôi
     và bắt đầu từ OLLAMA_NUM_CTX: gần như mọi câu hỏi rơi vào cùng một bậc, không có lần nạp
     lại nào, mà cấu hình quá tay vẫn được nới thay vì bị cắt.
+
+    num_predict: trần sinh THẬT của lượt này. Phần dự phòng cho việc sinh không cần lớn hơn
+    trần đó - cấp 4000 token dự phòng cho một lượt chỉ được phép sinh 3000 là giữ chỗ một
+    khoảng không bao giờ dùng tới, và chính khoảng giữ chỗ đó có thể đẩy num_ctx lên bậc cao
+    hơn (mỗi lần đổi bậc là một lần Ollama nạp lại model). Bỏ trống thì giữ nguyên hành vi cũ.
     """
-    can = so_token_prompt + config.OLLAMA_DU_PHONG_TOKEN_SINH
+    du_phong = config.OLLAMA_DU_PHONG_TOKEN_SINH
+    if num_predict is not None:
+        du_phong = min(du_phong, max(num_predict, 1))
+    can = so_token_prompt + du_phong
     tran = max(config.OLLAMA_NUM_CTX_TOI_DA, config.OLLAMA_NUM_CTX)
     num_ctx = config.OLLAMA_NUM_CTX
     while num_ctx < can and num_ctx < tran:
@@ -417,9 +465,77 @@ def _tinh_num_ctx(so_token_prompt: int) -> int:
         logger.warning(
             "Prompt ~%d token + %d token dự phòng sinh = %d, vượt trần OLLAMA_NUM_CTX_TOI_DA=%d. "
             "Hạ TOP_K hoặc NGAN_SACH_KY_TU_MOI_DOAN (ĐỪNG hạ num_ctx), hoặc nâng trần nếu máy đủ RAM.",
-            so_token_prompt, config.OLLAMA_DU_PHONG_TOKEN_SINH, can, tran,
+            so_token_prompt, du_phong, can, tran,
         )
     return num_ctx
+
+
+def ngan_sach_token_ngu_canh(num_predict: int, so_token_co_dinh: int) -> int:
+    """Số token còn lại dành cho các ĐOẠN TRÍCH, sau khi đã trừ mọi phần cố định của prompt.
+
+    so_token_co_dinh: system prompt + câu hỏi + nhãn + khối ngữ cảnh hội thoại - những thứ
+    KHÔNG được phép cắt (cắt system prompt là gỡ bỏ chính các ràng buộc chống bịa đặt).
+    """
+    tran = max(config.OLLAMA_NUM_CTX_TOI_DA, config.OLLAMA_NUM_CTX)
+    du_phong = min(config.OLLAMA_DU_PHONG_TOKEN_SINH, max(num_predict, 1))
+    return tran - du_phong - so_token_co_dinh
+
+
+def nen_ngu_canh(cac_chunk: List[Dict], ngan_sach_token: int) -> List[Dict]:
+    """Ép các đoạn trích vào `ngan_sach_token`, bỏ từ đoạn XẾP HẠNG THẤP NHẤT lên.
+
+    VÌ SAO PHẢI CÓ BƯỚC NÀY, khi _tinh_num_ctx() đã cảnh báo lúc prompt vượt trần: cảnh báo
+    chỉ nói cho người dùng biết cấu hình đã quá tay, nhưng lượt hỏi ĐANG chạy thì vẫn hỏng -
+    Ollama cắt im lặng từ ĐẦU phần user content, tức xoá đúng đoạn trích [1], vốn là đoạn
+    liên quan nhất (_ghep_prompt xếp đoạn tốt nhất lên trước). Người dùng nhận về một câu trả
+    lời bám vào những đoạn kém liên quan nhất mà không có một dấu hiệu nào.
+
+    VÌ SAO KHÔNG HẠ num_ctx: đó chính là cái bẫy đã sập một lần rồi (xem config.OLLAMA_NUM_CTX).
+    Hạ num_ctx không làm prompt ngắn lại, nó chỉ đổi chỗ bị cắt từ "do ta chọn" sang "do máy
+    chủ chọn" - mà máy chủ thì luôn chọn cắt phần đầu, tức phần quý nhất.
+
+    QUY TẮC CẮT, theo thứ tự:
+      1. Bỏ hẳn các đoạn xếp cuối (điểm thấp nhất) cho tới khi vừa ngân sách. Bỏ từ CUỐI giữ
+         nguyên được số thứ tự [1], [2]... của các đoạn còn lại, nên trích dẫn mà LLM gắn vẫn
+         khớp đúng nguồn - nếu bỏ từ giữa thì mọi số sau đó lệch đi một bậc.
+      2. Nếu ngay cả một đoạn duy nhất cũng không vừa, cắt ngắn NỘI DUNG của nó và nói rõ đã
+         cắt. Thà đưa nửa đầu một đoạn còn hơn không đưa gì.
+
+    Trả về danh sách MỚI dùng riêng cho việc ghép prompt; danh sách gốc không đổi nên trích
+    dẫn hiển thị cho người đọc vẫn giữ nguyên văn đầy đủ.
+    """
+    if not cac_chunk or not config.BAT_NEN_NGU_CANH or ngan_sach_token <= 0:
+        return cac_chunk
+
+    # Mỗi đoạn còn kèm một dòng tiêu đề "[n] (Nguồn: ..., trang ...)" - ước lượng dư một chút
+    # cho phần đó để không tính thiếu.
+    _CHI_PHI_NHAN = 30
+    so_token = [_uoc_luong_so_token(c["noidung"]) + _CHI_PHI_NHAN for c in cac_chunk]
+    if sum(so_token) <= ngan_sach_token:
+        return cac_chunk
+
+    giu, da_dung = [], 0
+    for chunk, token in zip(cac_chunk, so_token):
+        if da_dung + token <= ngan_sach_token:
+            giu.append(chunk)
+            da_dung += token
+            continue
+        con_lai = ngan_sach_token - da_dung - _CHI_PHI_NHAN
+        if not giu and con_lai > 0:
+            so_ky_tu = int(con_lai * config.SO_KY_TU_MOI_TOKEN_UOC_LUONG)
+            ban_cat = dict(chunk)
+            ban_cat["noidung"] = chunk["noidung"][:so_ky_tu].rstrip() + "\n[...đoạn bị cắt bớt...]"
+            giu.append(ban_cat)
+        break
+
+    logger.warning(
+        "NÉN NGỮ CẢNH: %d đoạn (~%d token) vượt ngân sách %d token của cửa sổ ngữ cảnh - "
+        "chỉ gửi %d đoạn xếp hạng cao nhất. Đây là lựa chọn của hệ thống (bỏ phần ÍT liên "
+        "quan nhất) thay vì để Ollama cắt im lặng mất đầu ngữ cảnh. Nâng OLLAMA_NUM_CTX_TOI_DA "
+        "nếu máy đủ RAM, hoặc hạ NGAN_SACH_KY_TU_MOI_DOAN / TOP_K.",
+        len(cac_chunk), sum(so_token), ngan_sach_token, len(giu),
+    )
+    return giu
 
 
 def _ghep_prompt(
@@ -503,6 +619,11 @@ class RagPipeline:
         # "eval_count", "done_reason", "num_ctx", "uoc_luong_token_prompt"}. Xem
         # _ghi_nhan_thong_ke_llm - đây là thứ duy nhất phát hiện được prompt bị cắt.
         self.thong_ke_llm = None
+        # Câu hỏi của lượt gần nhất có được xếp là PHỨC TẠP không (xem la_cau_hoi_phuc_tap).
+        # Đặt tại truy_xuat() và đọc lại ở bước sinh câu trả lời, để cả hai bước cấp ngân
+        # sách theo CÙNG một phán đoán - hai bước tự đánh giá riêng thì có lúc lệch nhau, và
+        # lúc đó ngân sách rerank với ngân sách sinh không còn nói về cùng một câu hỏi nữa.
+        self.la_cau_hoi_phuc_tap = True
         self._ollama_client = ollama.Client(host=config.OLLAMA_HOST)
         # Đặt False khi máy chủ Ollama báo model không hỗ trợ chế độ suy luận, để những lần
         # gọi sau không phải thử-rồi-hỏng thêm lần nào nữa (xem _goi_llm).
@@ -602,11 +723,17 @@ class RagPipeline:
         return [(vi_tri, diem_cosine[vi_tri]) for vi_tri in thu_tu], vi_tri_cuu_ho
 
     def _xep_hang_lai(
-        self, cau_hoi: str, ung_vien: List[tuple], vi_tri_cuu_ho: Optional[Set[int]] = None
+        self, cau_hoi: str, ung_vien: List[tuple], vi_tri_cuu_ho: Optional[Set[int]] = None,
+        so_ung_vien_rerank: Optional[int] = None,
     ) -> List[tuple]:
         """Xếp lại thứ tự ứng viên bằng cross-encoder (xem rag/reranker.py).
 
-        Chỉ rerank SO_UNG_VIEN_RERANK ứng viên đầu, phần đuôi giữ nguyên thứ tự RRF. Lý do
+        so_ung_vien_rerank: số ứng viên đầu được chấm cho riêng lượt này. Bỏ trống thì dùng
+        config.SO_UNG_VIEN_RERANK. Đây là chỗ ngân sách thích ứng ăn vào: cross-encoder chấm
+        từng cặp (câu hỏi, đoạn) nên chi phí tỉ lệ THẲNG với số ứng viên, mà một câu hỏi định
+        nghĩa ngắn thì đoạn đúng gần như luôn nằm trong nhóm đầu (xem la_cau_hoi_phuc_tap).
+
+        Chỉ rerank số ứng viên đầu đó, phần đuôi giữ nguyên thứ tự RRF. Lý do
         giữ đuôi thay vì cắt bỏ: các bước sau còn lọc tiếp (trần đoạn mỗi trang, sàn điểm),
         nên nếu cắt cụt ở đây thì có trường hợp không còn đủ ứng viên để lấp TOP_K.
 
@@ -629,7 +756,7 @@ class RagPipeline:
             return ung_vien
 
         vi_tri_cuu_ho = vi_tri_cuu_ho or set()
-        so_dau = min(len(ung_vien), config.SO_UNG_VIEN_RERANK)
+        so_dau = min(len(ung_vien), so_ung_vien_rerank or config.SO_UNG_VIEN_RERANK)
         chi_so_cham = list(range(so_dau)) + [
             i for i in range(so_dau, len(ung_vien)) if ung_vien[i][0] in vi_tri_cuu_ho
         ]
@@ -812,7 +939,19 @@ class RagPipeline:
         # gần 0 - và vì điểm rerank còn là cơ chế TỪ CHỐI (§5.29), câu nối tiếp hợp lệ sẽ bị
         # từ chối oan. Đây là lý do quan trọng nhất khiến bước này không thể chỉ là "thêm một
         # nhánh truy xuất cho vui".
-        ung_vien = self._xep_hang_lai(cau_hoi_chinh, ung_vien, vi_tri_cuu_ho)
+        #
+        # NGÂN SÁCH RERANK THÍCH ỨNG: đánh giá độ phức tạp trên truy vấn CHÍNH (bản đã mang
+        # ngữ cảnh hội thoại), không phải câu người dùng gõ. Một câu nối tiếp trông rất ngắn
+        # ("Thế còn cái thứ hai?") nhưng bản đủ nghĩa của nó thì không - chấm trên câu gốc sẽ
+        # cấp ngân sách thấp cho đúng loại câu hỏi khó nhất của hệ thống.
+        self.la_cau_hoi_phuc_tap = la_cau_hoi_phuc_tap(cau_hoi_chinh)
+        ung_vien = self._xep_hang_lai(
+            cau_hoi_chinh, ung_vien, vi_tri_cuu_ho,
+            so_ung_vien_rerank=(
+                config.SO_UNG_VIEN_RERANK if self.la_cau_hoi_phuc_tap
+                else config.SO_UNG_VIEN_RERANK_DON_GIAN
+            ),
+        )
 
         # TRẦN SỐ ĐOẠN MỖI TRANG - THÍCH ỨNG. Trần chỉ có ý nghĩa khi CÓ nhiều trang để phân
         # bổ. Với câu hỏi mà toàn bộ câu trả lời nằm gọn trong một trang (một mục định nghĩa,
@@ -942,7 +1081,8 @@ class RagPipeline:
     # SINH CÂU TRẢ LỜI
     # ------------------------------------------------------------------
     def _goi_llm_theo_luong(
-        self, he_thong_prompt: str, prompt_nguoi_dung: str, bat_thinking: bool
+        self, he_thong_prompt: str, prompt_nguoi_dung: str, bat_thinking: bool,
+        num_predict: Optional[int] = None,
     ) -> Iterator[Dict]:
         """Gọi Ollama ở chế độ STREAMING, sinh ra từng mảnh {"loai", "them"} khi model viết.
 
@@ -972,8 +1112,9 @@ class RagPipeline:
         (43.7s so với 47.0s - trong khoảng nhiễu), trong khi lại là quy ước riêng của Qwen3,
         đổi sang model khác thì nó thành một chuỗi rác nằm ngay cuối câu hỏi.
         """
+        num_predict = num_predict or config.OLLAMA_NUM_PREDICT
         so_token_prompt = _uoc_luong_so_token(he_thong_prompt, prompt_nguoi_dung)
-        num_ctx = _tinh_num_ctx(so_token_prompt)
+        num_ctx = _tinh_num_ctx(so_token_prompt, num_predict)
         tham_so = dict(
             model=config.OLLAMA_MODEL,
             messages=[
@@ -982,7 +1123,7 @@ class RagPipeline:
             ],
             options={
                 "temperature": config.OLLAMA_TEMPERATURE,
-                "num_predict": config.OLLAMA_NUM_PREDICT,
+                "num_predict": num_predict,
                 # BẮT BUỘC khai báo. Không truyền num_ctx thì Ollama cấp 4096 token bất kể
                 # model hỗ trợ bao nhiêu, và khi prompt vượt quá thì nó cắt IM LẶNG từ đầu
                 # phần user content - tức xoá đúng đoạn trích [1], [2] liên quan nhất, vì
@@ -1038,7 +1179,7 @@ class RagPipeline:
         da_co_cau_tra_loi = False
         for manh in itertools.chain([manh_dau], luong):
             if manh.get("done"):
-                self._ghi_nhan_thong_ke_llm(manh, so_token_prompt, num_ctx)
+                self._ghi_nhan_thong_ke_llm(manh, so_token_prompt, num_ctx, num_predict)
             tin_nhan = manh.get("message") or {}
             suy_luan_tho = tin_nhan.get("thinking") or ""
             if suy_luan_tho:
@@ -1068,20 +1209,22 @@ class RagPipeline:
             # là một bong bóng chat trống trơn trông y hệt như hệ thống bị lỗi. Đây cũng đúng
             # hành vi dự phòng của bản không streaming trước đây.
             #
-            # Nguyên nhân đã từng bị chẩn đoán NHẦM là chạm OLLAMA_NUM_PREDICT (12000). Thủ
+            # Nguyên nhân đã từng bị chẩn đoán NHẦM là chạm num_predict (mặc định 12000). Thủ
             # phạm thật là num_ctx: khi cửa sổ mặc định 4096 bị prompt ~4900 token ăn hết,
             # phần còn lại cho thinking + câu trả lời gần bằng 0, model viết được mấy dòng
             # suy luận rồi chạm trần. num_predict=12000 chưa bao giờ với tới được.
             logger.warning(
                 "Model không sinh câu trả lời nào ngoài phần suy luận - trả về phần suy luận "
                 "để không hiện bong bóng rỗng. Thống kê lượt gọi: %s (xem num_ctx và "
-                "done_reason ở đây trước khi nghi OLLAMA_NUM_PREDICT=%d).",
+                "done_reason ở đây trước khi nghi num_predict=%d).",
                 self.thong_ke_llm,
-                config.OLLAMA_NUM_PREDICT,
+                num_predict,
             )
             yield {"loai": "cau_tra_loi", "them": "".join(cac_manh_suy_luan).strip()}
 
-    def _ghi_nhan_thong_ke_llm(self, manh, so_token_prompt: int, num_ctx: int) -> None:
+    def _ghi_nhan_thong_ke_llm(
+        self, manh, so_token_prompt: int, num_ctx: int, num_predict: Optional[int] = None
+    ) -> None:
         """Đọc bộ đếm token thật của Ollama ở mảnh cuối luồng và cảnh báo nếu bị cắt.
 
         Đây là tuyến CHỨNG MINH cho bug num_ctx: prompt_eval_count là số token máy chủ THẬT
@@ -1097,11 +1240,13 @@ class RagPipeline:
         """
         so_token_that = manh.get("prompt_eval_count")
         ly_do_dung = manh.get("done_reason")
+        num_predict = num_predict or config.OLLAMA_NUM_PREDICT
         self.thong_ke_llm = {
             "prompt_eval_count": so_token_that,
             "eval_count": manh.get("eval_count"),
             "done_reason": ly_do_dung,
             "num_ctx": num_ctx,
+            "num_predict": num_predict,
             "uoc_luong_token_prompt": so_token_prompt,
         }
         logger.info(
@@ -1120,7 +1265,7 @@ class RagPipeline:
                 "Câu trả lời bị cắt cụt (done_reason='length'): đã sinh %s token với "
                 "num_predict=%d, num_ctx=%d. Nếu tái diễn, nâng OLLAMA_NUM_CTX trước - phần "
                 "còn lại của cửa sổ sau prompt mới là trần thật của câu trả lời.",
-                manh.get("eval_count"), config.OLLAMA_NUM_PREDICT, num_ctx,
+                manh.get("eval_count"), num_predict, num_ctx,
             )
 
     def sinh_cau_tra_loi_theo_luong(
@@ -1151,13 +1296,35 @@ class RagPipeline:
         else:
             he_thong_prompt = HE_THONG_PROMPT_EN if ngon_ngu == "en" else HE_THONG_PROMPT_VI
 
+        # NGÂN SÁCH SINH THÍCH ỨNG. Dùng lại phán đoán độ phức tạp mà truy_xuat() đã đặt
+        # (self.la_cau_hoi_phuc_tap) thay vì tự đánh giá lại: bước truy xuất nhìn thấy bản
+        # câu hỏi ĐÃ MANG NGỮ CẢNH hội thoại, còn ở đây chỉ có câu người dùng gõ - tự đánh
+        # giá lại sẽ xếp một câu nối tiếp ngắn vào nhóm đơn giản dù nó không hề đơn giản.
+        # Khi hàm này được gọi thẳng (evaluation, test) thì cờ giữ giá trị mặc định True,
+        # tức ngân sách đầy đủ - đúng hành vi cũ, không có gì bị cắt sau lưng.
+        num_predict = (
+            config.OLLAMA_NUM_PREDICT if self.la_cau_hoi_phuc_tap
+            else config.NUM_PREDICT_CAU_HOI_DON_GIAN
+        )
+
+        # NÉN NGỮ CẢNH TRƯỚC KHI GHÉP PROMPT, không phải sau. Phải ước lượng được phần CỐ
+        # ĐỊNH của prompt (system prompt, câu hỏi, khối ngữ cảnh hội thoại) mới biết còn lại
+        # bao nhiêu token cho đoạn trích - và phần cố định đó là thứ tuyệt đối không cắt.
+        cac_chunk_gui = nen_ngu_canh(
+            cac_chunk,
+            ngan_sach_token_ngu_canh(
+                num_predict,
+                _uoc_luong_so_token(he_thong_prompt, cau_hoi, ngu_canh_hoi_thoai),
+            ),
+        )
         prompt_nguoi_dung = _ghep_prompt(
-            cau_hoi, cac_chunk, ngon_ngu, la_kiem_chung, ngu_canh_hoi_thoai
+            cau_hoi, cac_chunk_gui, ngon_ngu, la_kiem_chung, ngu_canh_hoi_thoai
         )
         yield from self._goi_llm_theo_luong(
             he_thong_prompt,
             prompt_nguoi_dung,
             bat_thinking=la_kiem_chung and config.BAT_THINKING_KHI_KIEM_CHUNG,
+            num_predict=num_predict,
         )
 
     def sinh_cau_tra_loi(self, cau_hoi: str, cac_chunk: List[Dict]) -> str:

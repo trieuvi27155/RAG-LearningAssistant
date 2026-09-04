@@ -31,16 +31,21 @@ backend API riêng:
                 │                                 │
                 ▼                                 ▼
       rag/document_loader.py            rag/embedding.py (encode câu hỏi)
+    ◄── rag/bo_nho_dem.py ──►                     │
+    ◄── rag/do_thoi_gian.py ─►                    ▼
+                │                       rag/vector_store.py (search)
+                ▼                                 │
+        rag/chunking.py                           ▼
+                │                       rag/reranker.py → rag/rag_pipeline.py
+                ▼                                 │      (ghép prompt + gọi Ollama)
+        rag/embedding.py                          ▼
                 │                                 │
-                ▼                                 ▼
-        rag/chunking.py                 rag/vector_store.py (search)
-                │                                 │
-                ▼                                 ▼
-        rag/embedding.py                 rag/reranker.py → rag/rag_pipeline.py
-                │                                 │      (ghép prompt + gọi Ollama)
                 ▼                                 ▼
        rag/vector_store.py  ◄──── dùng chung ──► rag/citation.py
 ```
+
+`bo_nho_dem` (cache theo băm nội dung) và `do_thoi_gian` (profiling) chỉ phục vụ luồng
+Ingestion và **không** nằm trên đường đi của một câu hỏi — độ trễ lúc hỏi không đổi vì chúng.
 
 **Nguyên tắc cốt lõi:** hai luồng độc lập về thời điểm chạy nhưng dùng **chung 1 instance**
 `EmbeddingService` và `VectorStore`. Bắt buộc dùng chung model embedding — nếu không, vector
@@ -57,17 +62,37 @@ dùng tại 1 thời điểm, không cần horizontal scaling.
 
 ```
 data/raw/*.pdf|*.pptx|*.docx
-   │  doc_thu_muc()                → List[{nguon, trang, noidung}]   (1 phần tử / trang·slide)
+   │  bam_file() từng tài liệu, đối chiếu với sổ băm trong index_info.json
+   │     → chỉ những file MỚI / ĐÃ ĐỔI mới đi tiếp; file đã biến mất bị xoa_theo_nguon()
+   │  doc_nhieu_file()             → List[{nguon, trang, noidung}]   (1 phần tử / trang·slide)
+   │     ├─ trúng cache tài liệu (băm nội dung + vân tay cấu hình đọc) → trả kết quả cũ
+   │     └─ trượt cache → doc_pdf/pptx/docx MỘT LƯỢT (§5.66):
+   │            pha 1  đọc text + bảng + cột + tiêu đề + liệt kê ứng viên ảnh (chưa render)
+   │            pha 2  OCR các trang đã đánh dấu — tra cache trước, phần còn lại gọi
+   │                   model SONG SONG (SO_WORKER_VISION)
+   │            pha 3  gộp OCR, dọn watermark, loại trang rỗng / trang mục lục
+   │            pha 4  render ảnh được giữ lại, loại hình lặp kiểu logo
+   │            rồi   chú thích ảnh bằng model vision (gộp ảnh trùng + cache + song song)
    │  chia_chunk()                 → List[{chunk_id, nguon, trang, vi_tri, noidung}]
    │                                 (~160 token ĐO BẰNG TOKENIZER CỦA MODEL)
-   │  encode_tai_lieu()            → np.ndarray (n, 768) float32, đã chuẩn hoá
-   │  VectorStore.them() → .luu()
+   │  encode_co_cache()            → np.ndarray (n, 768) float32, đã chuẩn hoá
+   │                                 (chỉ encode chunk chưa có trong cache embedding)
+   │  VectorStore.them() → .luu()   (ghi kèm sổ băm tài liệu)
    ▼
 data/faiss_index/  index.faiss · metadata.pkl · index_info.json ("vân tay" cấu hình, §5.20)
+data/cache/        tai_lieu/ · ocr/ · vision/ · embedding/  (khoá theo BĂM NỘI DUNG, §5.66)
 ```
 
-Mỗi lần bấm nút, **toàn bộ** `data/raw/` được đọc và build lại từ đầu (không incremental
-khi THÊM — §5.10). Riêng XOÁ tài liệu có hiệu lực tức thời qua `xoa_theo_nguon()`.
+**Index TĂNG DẦN theo mặc định** (`BAT_INDEX_TANG_DAN`): chỉ tài liệu mới hoặc đã đổi nội dung
+mới được xử lý lại; phần còn lại giữ nguyên vector đang có. Đây là chỗ đã thay cho quyết định
+cũ ở §5.10 ("build lại toàn bộ khi THÊM tài liệu") — quyết định đó đúng khi chưa có cách nào
+biết tài liệu nào đã đổi, và băm nội dung chính là cách đó. XOÁ tài liệu vẫn có hiệu lực tức
+thời qua `xoa_theo_nguon()` như cũ. Khi vân tay index không khớp cấu hình (đổi model embedding,
+chunk size…) thì hệ thống tự lùi về build **toàn bộ**, vì lúc đó vector cũ và mới không nằm
+cùng một không gian ngữ nghĩa.
+
+Sau mỗi lần build, `rag/do_thoi_gian.py` in bảng tổng kết thời gian từng bước
+(`BAT_PROFILING_INGESTION`).
 
 ### 2.2 Query (mỗi câu hỏi)
 
@@ -81,12 +106,16 @@ Câu hỏi
              │  lọc theo nguon_cho_phep (tick chọn nguồn ở UI)
              ▼
    rerank bằng cross-encoder (§5.24) — đổi THỨ TỰ, giữ nguyên thang điểm cosine
+             │  số ứng viên được chấm tuỳ ĐỘ PHỨC TẠP câu hỏi: 30 (phức tạp) / 12 (§5.67)
              │  điểm rerank < NGUONG_DIEM_RERANK_TOI_THIEU → TỪ CHỐI, không gọi LLM (§5.29)
              ▼
    _dung_doan_trich(): dựng đoạn QUANH chunk khớp, mở rộng sang chunk liền kề cùng trang;
                        trần SO_DOAN_TOI_DA_MOI_TRANG và trần riêng cho đoạn là ảnh (§5.35)
              ▼
    _phat_hien_ngon_ngu() → vi/en  ·  la_cau_hoi_kiem_chung() → prompt thường / KIỂM CHỨNG
+             ▼
+   nen_ngu_canh(): prompt vượt trần cửa sổ → bỏ các đoạn xếp hạng THẤP NHẤT (không bao giờ
+                   hạ num_ctx — §5.60, §5.67); num_predict cũng theo độ phức tạp câu hỏi
              ▼
    Ollama chat(stream=True) → câu trả lời chạy dần (§5.42)
              ▼
@@ -111,13 +140,41 @@ logging. Output là các hằng số module-level (`CHUNK_SIZE_TOKENS`, `EMBEDDI
 ### `rag/document_loader.py`
 Đọc PDF/PPTX/DOCX thành text, giữ metadata nguồn ngay từ bước đọc, chuẩn hoá Unicode NFC,
 dọn watermark + loại trang mục lục (§5.17), đọc bảng sang Markdown (§5.26), đọc PDF nhiều
-cột (§5.51), đọc lại trang dính chữ (§5.40), OCR trang hỏng (§5.37, §5.49).
+cột (§5.51), đọc lại trang dính chữ (§5.40), OCR trang hỏng (§5.37, §5.49). PDF đi qua đúng
+**một lượt duyệt**, chia 4 pha (§5.66).
 
 | Hàm | Input | Output |
 |---|---|---|
 | `doc_pdf` / `doc_pptx` / `doc_docx` | `Path` tới 1 file | `List[{nguon, trang, noidung}]` |
-| `doc_tai_lieu(duong_dan)` | 1 file, tự nhận đuôi | như trên |
-| `doc_thu_muc(thu_muc)` | 1 thư mục | gộp mọi file; file hỏng bị bỏ qua có báo cáo (§5.53) |
+| `doc_tai_lieu(duong_dan)` | 1 file, tự nhận đuôi | như trên — chỉ ĐỌC, chưa chú thích ảnh |
+| `doc_tai_lieu_hoan_chinh(duong_dan)` | 1 file | đọc + chú thích ảnh + bỏ ảnh rỗng — **đơn vị được cache** |
+| `doc_tai_lieu_co_cache(duong_dan)` | 1 file | như trên, nhưng trúng cache thì trả kết quả cũ (§5.66) |
+| `cac_file_tai_lieu(thu_muc)` | 1 thư mục | danh sách `Path` file hỗ trợ được, thứ tự ổn định |
+| `doc_nhieu_file(cac_duong_dan)` | danh sách file | gộp; file hỏng bị bỏ qua có báo cáo (§5.53) |
+| `doc_thu_muc(thu_muc)` | 1 thư mục | `doc_nhieu_file(cac_file_tai_lieu(thu_muc))` |
+| `HieuChinhXTolerance` | — | nhớ mức `x_tolerance` đã dùng được cho tài liệu hiện tại (§5.66) |
+
+`doc_nhieu_file` nhận DANH SÁCH thay vì thư mục là điều kiện để index tăng dần hoạt động:
+khi chỉ 1 trong 26 tài liệu thay đổi, `app.py` chỉ đưa đúng file đó vào.
+
+### `rag/bo_nho_dem.py`
+Bộ nhớ đệm theo **băm nội dung** cho luồng Ingestion (§5.66). Mọi lỗi đọc/ghi cache đều bị
+nuốt kèm log: cache hỏng chỉ được phép làm hệ thống chậm lại đúng bằng lúc chưa có cache.
+
+| Hàm / lớp | Vai trò |
+|---|---|
+| `bam_file` / `bam_bytes` / `bam_chuoi` | băm SHA-256 cắt còn 32 ký tự hex (đủ ngắn cho đường dẫn Windows) |
+| `van_tay_doc_tai_lieu()` | băm của các tuỳ chọn ĂN VÀO KẾT QUẢ ĐỌC — đổi chúng thì cache phải trượt |
+| `KhoDem` | kho khoá-giá trị trên đĩa, chia thư mục con theo 2 ký tự đầu của khoá |
+| `kho_tai_lieu` / `kho_ocr` / `kho_vision` | ba kho dùng chung cho cả tiến trình |
+| `khoa_tai_lieu` / `khoa_ocr` / `khoa_vision` | dựng khoá cho từng loại (xem bảng ở §5.66) |
+| `KhoVectorDem` / `encode_co_cache` | cache embedding trong MỘT file `.npz`, chỉ encode chunk mới |
+| `dung_luong_cache()` / `xoa_cache()` | cho giao diện nói được con số thật khi mời xoá |
+
+### `rag/do_thoi_gian.py`
+Đo thời gian từng bước Ingestion và in bảng tổng kết sau mỗi lần build. Bộ đếm là biến
+module (một tiến trình = một lần build) và có `Lock` vì Vision/OCR chạy trên nhiều thread.
+`dat_lai()` · `do("ten_buoc")` (context manager) · `ghi_nhan()` · `bao_cao()` · `ghi_bao_cao()`.
 
 ### `rag/chunking.py`
 Recursive Character Splitting, đo bằng **tokenizer thật của model** (tiktoken chỉ dự phòng).
@@ -145,17 +202,29 @@ Cross-encoder (~2.2GB) đọc cả cặp (câu hỏi, đoạn). `.xep_hang(cau_h
 điểm song song với `cac_doan`, chưa sắp xếp. Điểm này còn dùng cho ngưỡng từ chối (§5.29).
 
 ### `rag/image_extractor.py`
-`trich_anh_pdf/pptx/docx` → bản ghi ảnh dùng **đúng schema `{nguon, trang, noidung}`** của
-văn bản, nên đi qua toàn bộ luồng còn lại y hệt một đoạn text — không module nào phải biết
-đến khái niệm "ảnh" (§5.27). PPTX duyệt đệ quy group shape; DOCX/PPTX quét `rels` để không
-mất ảnh SVG/ảnh liên kết (§5.33).
+Bản ghi ảnh dùng **đúng schema `{nguon, trang, noidung}`** của văn bản, nên đi qua toàn bộ
+luồng còn lại y hệt một đoạn text — không module nào phải biết đến khái niệm "ảnh" (§5.27).
+PPTX duyệt đệ quy group shape; DOCX/PPTX quét `rels` để không mất ảnh SVG/ảnh liên kết (§5.33).
+
+| Hàm | Vai trò |
+|---|---|
+| `ung_vien_anh_trang(trang)` | liệt kê `(bbox, có_phủ_cả_trang)` của ảnh đáng giữ — **chưa render** (§5.66) |
+| `luu_anh_trang_pdf(...)` | render + lưu ra file những ảnh đã được chọn |
+| `trich_anh_pptx` / `trich_anh_docx` | trích ảnh từ gói Office (blob có sẵn, không phải render) |
+| `ly_do_loai_anh(rong, cao, dt_trang)` | ba chốt hình dạng: kích thước · tỉ lệ cạnh · tỉ lệ diện tích |
+| `ly_do_loai_anh_blob(du_lieu)` | như trên nhưng đọc kích thước thẳng từ bytes (PPTX/DOCX) |
+| `loc_anh_lap_lai(cac_ban_ghi, nguon)` | loại hình lặp lại kiểu logo/watermark theo băm nội dung |
+
+Tách "chọn ảnh nào" khỏi "render ảnh đó" là điều làm nên luồng đọc một-lượt: bước chọn chỉ
+đọc metadata có sẵn trong đối tượng trang nên rẻ tới mức chạy được ngay trong vòng lặp đọc
+text, còn bước render chỉ chạy cho ảnh đã qua mọi bộ lọc.
 
 ### `rag/vision_caption.py`
 | Hàm | Vai trò |
 |---|---|
 | `mo_hinh_vision_co_san()` | model đã pull chưa — để giảm cấp thay vì crash |
 | `chu_thich_anh()` | model vision đọc nội dung BÊN TRONG hình → text tìm kiếm được |
-| `bo_sung_chu_thich_vision()` | sửa `noidung` tại chỗ (nối thêm, không thay thế) |
+| `bo_sung_chu_thich_vision()` | sửa `noidung` tại chỗ (nối thêm, không thay thế); gộp ảnh trùng nội dung → tra cache → gọi model song song (§5.66) |
 | `trang_can_ocr()` / `ocr_trang_pdf()` | phát hiện + OCR trang đọc hỏng (§5.37, §5.49) |
 
 ### `rag/tiep_noi_hoi_thoai.py`
@@ -205,6 +274,13 @@ Nhận sẵn `EmbeddingService` + `VectorStore` qua constructor, không tự t�
 | `.hoi_dap(…)` | `{cau_tra_loi, cac_chunk_nguon, la_kiem_chung, truy_van, mau_thuan, bam_nguon, do_tre{…}}` |
 
 Hàm module-level `la_cau_hoi_kiem_chung()` (§5.22) và `_phat_hien_ngon_ngu()` (§5.31).
+
+Ngân sách thích ứng (§5.67) nằm ở ba hàm module-level, tách rời để test được mà không cần
+Ollama: `la_cau_hoi_phuc_tap(cau_hoi)` phân loại độ phức tạp; `ngan_sach_token_ngu_canh(...)`
+tính số token còn lại cho đoạn trích sau khi trừ phần cố định của prompt; `nen_ngu_canh(...)`
+bỏ các đoạn xếp hạng thấp nhất cho vừa ngân sách. `_tinh_num_ctx()` nhận thêm `num_predict`
+để không giữ chỗ một khoảng sinh không bao giờ dùng tới — nhưng **không bao giờ** trả về giá
+trị nhỏ hơn `OLLAMA_NUM_CTX` (§5.60).
 
 ### `rag/citation.py`
 | Hàm | Ghi chú |
@@ -313,6 +389,14 @@ Quyết định phạm vi đã chốt trước khi code, không phải giới h�
 Bất đối xứng có chủ đích: **thêm** dù sao cũng phải embed nội dung mới nên incremental không
 tiết kiệm được gì; **xoá** chỉ cần bỏ vector cũ (rẻ, tức thời) và việc trích dẫn còn trỏ tới
 file người dùng đã xoá là hành vi gây hiểu lầm, phải tránh ngay.
+
+> **ĐÃ THAY THẾ — xem §5.66.** Lập luận trên có một lỗ hổng chỉ lộ ra khi corpus lớn lên: nó
+> đúng cho **tài liệu vừa thêm** (file đó dù sao cũng phải embed) nhưng bỏ qua **25 tài liệu
+> còn lại**, vốn chẳng đổi gì mà vẫn bị đọc lại, OCR lại, chú thích ảnh lại và encode lại.
+> Thứ còn thiếu lúc đó không phải là ý tưởng incremental mà là một cách ĐÁNG TIN để biết tài
+> liệu nào đã đổi — băm nội dung ghi kèm vào `index_info.json` chính là cách đó. Vế "XOÁ thì
+> incremental" giữ nguyên và nay áp dụng cho cả file bị xoá khỏi thư mục, không chỉ file xoá
+> qua giao diện.
 
 ### 5.11 Dựng đoạn trích QUANH chunk khớp, không gộp nguyên trang ("small-to-big")
 Chunk nhỏ tối ưu cho *retrieval* nhưng khiến ngữ cảnh đưa cho LLM bị vụn. Bản trước sửa bằng
@@ -1635,6 +1719,196 @@ gọn trong một trang, và **chính thay đổi này phá vỡ giả định �
 định của metric sẽ luôn trông như một hồi quy, kể cả khi nó là cải thiện. Cách duy nhất phân
 biệt là hỏi "metric này đo được thứ tôi vừa đổi không" **trước** khi diễn giải con số — chứ
 không phải sau khi con số đã dẫn tới kết luận sai.
+
+
+### 5.66 Ingestion quét cùng một tài liệu nhiều lần — và bốn tầng sửa
+
+Một bản rà soát chi phí toàn hệ thống cho ra kết luận trái với trực giác ban đầu: **nút thắt
+không nằm ở FAISS hay ở phần tìm kiếm, mà nằm ở ingestion**. Truy xuất chạy trên vector đã
+tính sẵn nên nhanh; còn việc đọc và lập chỉ mục tài liệu thì đang trả một loạt chi phí lặp
+mà không ai nhìn thấy, vì chúng nằm rải rác ở năm hàm khác nhau.
+
+**Đếm lại số lần một trang PDF bị chạm vào, ở bản trước:**
+
+| Việc | Số lượt | Nằm ở đâu |
+|---|---|---|
+| `extract_text()` để dò `x_tolerance` | tới **5** (1 gốc + 4 mức) | `_trich_text_thich_ung` |
+| `bang.extract()` cho mỗi bảng | **2** (lọc bảng giả, rồi dựng khối) | `doc_pdf` |
+| `extract_words()` dò bố cục cột | 1 | `_cac_cot_cua_trang` |
+| `trang.chars` nhận diện tiêu đề | 1 | `_phat_hien_tieu_de_pdf` |
+| `extract_text()` lấy dòng chú thích ảnh | **1 lượt duyệt LẠI toàn bộ PDF** | `trich_anh_pdf` |
+
+Hai dòng in đậm là phần lãng phí thuần tuý: kết quả `extract()` bị vứt đi rồi tính lại sau ba
+dòng code, và toàn bộ PDF bị mở ra duyệt lần thứ hai chỉ để lấy vài dòng text vốn đã đọc xong
+ở lần thứ nhất. Trên giáo trình Bishop (758 trang, font Computer Modern nên **gần như trang
+nào cũng dính chữ**), riêng phép dò `x_tolerance` là hàng nghìn lượt đọc lại trang.
+
+**Tầng 1 — Đọc MỘT LƯỢT, chia 4 pha.** `doc_pdf` được viết lại thành: (1) duyệt trang một
+lần, đọc text + dò bảng/cột + nhận diện tiêu đề + **liệt kê ứng viên ảnh mà chưa render**;
+(2) OCR các trang đã đánh dấu; (3) gộp OCR, dọn dẹp, lọc trang mục lục; (4) render những ảnh
+được giữ lại.
+
+Điều khiến việc chia pha này *khó* nằm ở một quy tắc rất tinh tế đã có từ §5.49: ảnh phủ kín
+một trang chỉ được loại khi **OCR đã chứng minh** trang đó là ảnh chụp một trang chữ — mà
+điều đó thì phải chờ OCR chạy xong mới biết. Cách giải: `ung_vien_anh_trang()` trả về
+`(bbox, có_phủ_cả_trang)` và để chỗ gọi quyết định *sau*. Nhờ vậy quy tắc cũ được giữ **nguyên
+vẹn** thay vì bị thay bằng một phép đoán rẻ hơn. Sau mỗi trang, `flush_cache()` nhả các đối
+tượng đã phân tích; pha 4 chỉ đọc lại đúng những trang thật sự có ảnh cần render.
+
+**Tầng 2 — Hiệu chỉnh `x_tolerance` theo tài liệu, và một hồi quy đã suýt lọt.** Nguyên nhân
+dính chữ là *font và cỡ chữ của tài liệu*, hai thứ gần như không đổi trong cùng một cuốn sách
+— nên mức đã dùng được ở trang trước được thử **trước tiên** ở trang sau
+(`HieuChinhXTolerance`). Nó vẫn phải vượt đúng hai phép kiểm tra cũ (giảm được độ dính, không
+làm vỡ từ thêm quá `MUC_TANG_TU_LE_CHAP_NHAN`), nên tài liệu trộn nhiều font không bị đọc hỏng.
+
+Bản đầu còn thêm phép **dừng sớm**, và ở đây có một lỗi đáng ghi lại vì nó thuộc loại chỉ lộ
+ra khi đối chiếu đầu ra chứ không phải khi đọc code: phép dừng sớm dùng chung ngưỡng
+`TY_LE_DINH_CHU_DE_DOC_LAI = 0.10` — vốn trả lời câu hỏi *"trang này có đáng đọc lại không"* —
+để trả lời một câu hỏi hoàn toàn khác: *"bản đọc lại đã đủ tốt chưa"*. Hậu quả đo được trên
+`PaperQA.pdf`: mức `x_tolerance` đầu tiên đưa độ dính từ 30% xuống 9% được chấp nhận ngay, bỏ
+qua mức tốt hơn nằm ngay sau đó, và 9% còn lại đi thẳng vào index dưới dạng:
+
+```
+RAGmodelsretrievetextfromacorpus, usingmethodssuchasvectorembeddingsearchorkeyword
+```
+
+Sửa bằng một ngưỡng riêng, `TY_LE_DINH_CHU_DAT_YEU_CAU = 0.02`, lấy thẳng từ số đo đã có ở
+`_ty_le_dinh_chu()`: tám PDF đọc tốt trong corpus cho 0.0–1.5%, trang hỏng cho 41.7%. Vạch
+đặt ngay trên mức cao nhất của nhóm "đọc tốt".
+
+**Kiểm chứng bằng cách so đầu ra, không phải bằng cách đọc lại code.** Bản cũ và bản mới cùng
+đọc một corpus, rồi so từng bản ghi. Trên Bishop: **cùng 809 bản ghi**, độ dính trung bình
+**giống hệt** (0.0026 ở cả hai), và 540 trang có khác biệt đều là bản mới **tốt hơn**:
+
+```
+CŨ : p(X = xi,Y = yj)      lnp(D|α,β)    where i = 1,...,D
+MỚI: p(X = xi, Y = yj)     ln p(D|α, β)  where i = 1, . . . , D
+```
+
+**Tầng 3 — Cache theo CONTENT HASH** (`rag/bo_nho_dem.py`). Khoá cache là **nội dung**, không
+phải tên file hay `mtime`. `mtime` không đáng tin theo cả hai chiều: `git checkout`, sao chép
+file và đồng bộ cloud đều đổi `mtime` mà không đổi nội dung (gây build lại vô nghĩa), còn vài
+công cụ ghi đè file mà giữ nguyên `mtime` (gây **bỏ sót** thay đổi thật — kiểu hỏng tệ hơn hẳn).
+
+Bốn kho, mỗi kho khoá bằng đúng thứ quyết định kết quả của nó:
+
+| Kho | Khoá | Điều nó cứu |
+|---|---|---|
+| Tài liệu | băm(file) + vân tay cấu hình đọc | cả lượt đọc + OCR + vision của một tài liệu |
+| OCR | băm(file) + số trang + DPI | **cả bước render**, không chỉ lượt gọi model |
+| Vision | băm(**nội dung ảnh**) | logo lặp 60 slide → 1 lượt gọi; sống qua cả đổi tên file |
+| Embedding | băm(nội dung chunk) | ~316 giây encode toàn corpus mỗi lần build |
+
+Hai chi tiết đáng chú ý. **Thứ nhất**, khoá OCR cố ý *không* băm ảnh đã render — nếu băm ảnh
+thì phải render trước mới tra được cache, mà render một trang ở 150 DPI mất 0,2–0,4 giây;
+với sách scan 400 trang thì cache sẽ chỉ tiết kiệm được một nửa chi phí. **Thứ hai**, ranh
+giới cache tài liệu đặt *sau* bước chú thích vision (`doc_tai_lieu_hoan_chinh`), không phải
+trước: cache phần rẻ mà bỏ phần đắt thì gần như vô nghĩa. Cái giá là bước chú thích chuyển từ
+"gom ảnh cả corpus, báo tiến độ ảnh i/n" sang "làm xong từng tài liệu" — chấp nhận được, vì
+với index tăng dần thì đa số tài liệu không được xử lý lại chút nào.
+
+Vân tay cấu hình là chốt an toàn bắt buộc: đổi `BAT_OCR_DU_PHONG` hay `DPI_RENDER_TRANG_OCR`
+mà vẫn trả cache cũ chính là **kiểu lỗi không triệu chứng** mà cả tài liệu này tồn tại để
+tránh. Ngược lại, danh sách tham số trong vân tay được liệt kê **thủ công** chứ không quét cả
+`config`: gộp cả `TOP_K` hay ngưỡng rerank vào đó sẽ khiến mỗi lần chỉnh một tham số *truy
+vấn* là mất trắng cache *đọc tài liệu*, tức cache gần như không bao giờ trúng.
+
+**Tầng 4 — Index tăng dần.** Mỗi tài liệu được ghi kèm băm nội dung vào `index_info.json`. Lần
+build sau: tài liệu không đổi giữ nguyên vector; tài liệu đã đổi bị `xoa_theo_nguon()` rồi đọc
+lại; tài liệu biến mất khỏi thư mục bị gỡ khỏi index. Khi vân tay index không khớp cấu hình
+(đổi model embedding, chunk size…) thì tự lùi về build toàn bộ — dùng lại chính
+`ly_do_khong_tuong_thich()` đã viết cho việc cảnh báo người dùng, không phát minh cơ chế mới.
+
+Một chi tiết nhỏ nhưng quan trọng: băm chỉ được ghi cho tài liệu **thật sự có nội dung vào
+index**. Một file đọc hỏng (đặt mật khẩu, tải dở) mà vẫn được đánh dấu "đã xử lý" sẽ bị bỏ qua
+ở *mọi* lần build sau — lỗi im lặng vĩnh viễn. Để nó trượt và được thử lại mỗi lần là lựa chọn
+đúng, và gần như miễn phí nhờ cache tài liệu.
+
+**Song song hoá — chỉ đúng chỗ có lợi.** `SO_WORKER_VISION` chạy chú thích ảnh và OCR trên
+nhiều luồng, vì công việc thật nằm ở phía máy chủ Ollama còn Python chỉ ngồi chờ I/O (thread
+nhả GIL). Ba chỗ cố ý **không** song song hoá, và lý do của mỗi chỗ đều cụ thể:
+
+- **Render trang PDF**: `pypdfium2` không cam kết an toàn đa luồng, và render là việc thuần
+  CPU nên thread cũng không giúp gì.
+- **Đọc tài liệu** (`SO_WORKER_DOC = 1` mặc định): `pdfplumber` là CPU-bound trong Python nên
+  bị GIL chặn; dùng process thì mỗi tiến trình con phải nạp lại toàn bộ module, mà trên
+  Windows `spawn` còn chạy lại phần khởi tạo của `config`. Quan trọng hơn cả: **sau khi có
+  cache + index tăng dần, lần build thứ hai gần như không còn đọc lại tài liệu nào** — song
+  song hoá một việc đã không còn xảy ra là tối ưu nhầm chỗ.
+- **Số worker mặc định** suy từ `os.cpu_count()` nhưng chặn trên ở 4: mọi luồng đều đi qua
+  **một** máy chủ Ollama, mở hàng chục yêu cầu cùng lúc không làm model chạy nhanh hơn (nó
+  vẫn xếp hàng) mà chỉ làm RAM/VRAM phình lên.
+
+**Lọc ảnh — làm sạch index, không phải chỉ tiết kiệm thời gian.** Ba chốt hình dạng
+(kích thước, tỉ lệ cạnh, tỉ lệ diện tích trang) chạy **trước** khi render, cộng một chốt đếm
+lần lặp theo băm nội dung để bắt logo/watermark. Đo trên corpus thật, số bản ghi ảnh giảm
+401 → 261 (một bài giảng IoT), 219 → 168 và 75 → 61 (hai file DOCX), 18 → 13 (một bài thuyết
+trình) — **trong khi số bản ghi văn bản không đổi một đơn vị nào**. Mỗi ảnh bị loại là một
+lượt render, một file trên đĩa, một lượt gọi model vision (~1,9 giây) và một vector rác trong
+index không còn phải trả.
+
+Chốt tỉ lệ diện tích có một tính chất cần ghi lại để không ai chỉnh nhầm: trên khổ A4,
+`KICH_THUOC_ANH_TOI_THIEU` (120 điểm) đã tương đương ~2,9% diện tích trang, tức mọi ảnh lọt
+qua chốt kích thước đều tự khắc vượt ngưỡng diện tích. Chốt diện tích chỉ thật sự cắn ở trang
+khổ lớn. Quan hệ đó được khoá lại bằng một test riêng.
+
+**Profiling (`rag/do_thoi_gian.py`).** Log có sẵn dấu thời gian, nhưng nó nói được *"trang 412
+bị OCR lúc 09:31:07"* chứ không nói được *"OCR chiếm 68% tổng thời gian build"* — hai câu dẫn
+tới hai quyết định tối ưu khác nhau. Bảng tổng kết in sau mỗi lần build biến câu hỏi "chỗ nào
+đang chậm" thành một phép đo thay vì một phỏng đoán.
+
+---
+
+### 5.67 Ngân sách thích ứng lúc truy vấn — và ranh giới không được vượt
+
+Ở phía query, kết luận của bản rà soát là **không viết lại kiến trúc**: dense retrieval, BM25
+cứu hộ, RRF, reranker và citation đều là những quyết định đã được benchmark (§5.24, §5.29,
+§5.30). Embedding `multilingual-e5-base` chậm hơn `e5-small` nhưng hơn hẳn ở truy xuất chéo
+ngôn ngữ (MRR 0.738 so với 0.364), nên **không đổi model chỉ để lấy tốc độ**.
+
+Thứ *có* thể sửa là việc mọi câu hỏi đang được cấp **ngân sách tối đa**. "Overfitting là gì?"
+và "So sánh KNN với Naive Bayes về độ phức tạp, dữ liệu cần thiết và trường hợp nên dùng" cùng
+được cấp 30 ứng viên cross-encoder, cùng trần sinh 12000 token, cùng mức dự phòng cửa sổ ngữ
+cảnh lớn nhất. Câu thứ nhất không dùng hết phần nào trong số đó, nhưng vẫn phải chờ nó.
+
+`la_cau_hoi_phuc_tap()` phân loại bằng ba dấu hiệu — độ dài, động từ yêu cầu nhiều vế
+("so sánh", "liệt kê", "vì sao", "compare", "why"…), và việc có phải câu kiểm chứng hay không.
+Ngưỡng cố ý nghiêng hẳn về phía **cấp dư**: đoán nhầm một câu phức tạp thành đơn giản thì câu
+trả lời có thể thiếu ý — người dùng nhìn thấy; đoán nhầm chiều ngược lại chỉ khiến câu đó chạy
+chậm bằng đúng bản cũ, tức không tệ hơn hiện trạng. Hai loại sai không ngang giá nên ngưỡng
+không được đặt ở giữa.
+
+Độ phức tạp được đánh giá trên **truy vấn chính** (bản đã mang ngữ cảnh hội thoại), không phải
+câu người dùng gõ, và được ghi lại một lần vào `self.la_cau_hoi_phuc_tap` để bước truy xuất và
+bước sinh dùng chung một phán đoán. Chấm trên câu gốc sẽ xếp *"Thế còn cái thứ hai?"* vào
+nhóm đơn giản — tức cấp ngân sách thấp cho đúng loại câu hỏi khó nhất của hệ thống (§5.58).
+
+**Ranh giới tuyệt đối: KHÔNG hạ `num_ctx`.** Đây là chỗ mà một tối ưu tốc độ "hợp lý" sẽ tái
+lập đúng bug tệ nhất từng có (§5.60). Hạ `num_ctx` **không** làm prompt ngắn lại; nó chỉ
+chuyển quyền quyết định cắt chỗ nào từ ta sang Ollama, mà Ollama luôn cắt từ **đầu** phần user
+content — tức xoá đúng đoạn trích `[1]`, đoạn liên quan nhất, vì `_ghep_prompt()` xếp đoạn tốt
+nhất lên trước. Không lỗi, không cảnh báo, chỉ có câu trả lời tự nhiên kém đi.
+
+Vì vậy khi ngữ cảnh vượt trần, thứ bị giảm là **số đoạn**, và giảm **từ đoạn xếp hạng thấp
+nhất lên** (`nen_ngu_canh`). Bỏ từ cuối là bắt buộc chứ không phải tiện tay: nó giữ nguyên số
+thứ tự `[1]`, `[2]`… của các đoạn còn lại, nên trích dẫn mà LLM gắn vẫn trỏ đúng nguồn — bỏ
+từ giữa thì mọi số sau đó lệch một bậc. Danh sách gốc không bị sửa, nên trích dẫn hiển thị cho
+người đọc vẫn giữ nguyên văn đầy đủ. Khi ngay cả một đoạn duy nhất cũng không vừa, đoạn đó
+được cắt ngắn kèm ghi chú rõ ràng: thà đưa nửa đầu đoạn tốt nhất còn hơn không đưa gì, vì
+không đoạn nào nghĩa là LLM từ chối trả lời.
+
+Đây cũng là phần bù cho cảnh báo đã có ở `_tinh_num_ctx()`: cảnh báo nói cho người dùng biết
+cấu hình đã vượt trần máy, nhưng **lượt hỏi đang chạy thì vẫn hỏng**. Nén ngữ cảnh khiến lượt
+đó vẫn trả lời được, với phần bị bỏ là phần ít liên quan nhất — một lựa chọn của hệ thống, ghi
+rõ trong log, thay vì một lựa chọn ngẫu nhiên của bộ cắt prompt.
+
+**Adaptive TOP-K: cố ý KHÔNG làm.** Đây là một mục trong đề xuất tối ưu nhưng bị loại sau khi
+xét: `TOP_K = 4` là giá trị mà toàn bộ Recall@K, MRR và các ngưỡng lọc trong hệ thống đã được
+hiệu chỉnh trên đó (§5.61, §5.64). Hạ nó cho "câu hỏi đơn giản" mà **không đo lại** chính là
+đổi độ chính xác lấy tốc độ — đúng điều mà cả đợt tối ưu này tồn tại để tránh. Ba thứ đã làm
+(ứng viên rerank, `num_predict`, nén ngữ cảnh) đều không đụng tới tập đoạn trích được chọn
+trong trường hợp bình thường. Khi nào có phép đo Recall@K theo từng nhóm độ phức tạp thì đây
+là việc tiếp theo đáng làm.
 
 ---
 

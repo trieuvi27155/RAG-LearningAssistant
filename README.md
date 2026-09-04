@@ -45,7 +45,9 @@ rag-do-an/
 ├── app.py                      # Streamlit app chính
 ├── config.py                   # Cấu hình: model, chunk size, top_k... (đọc từ .env)
 ├── rag/
-│   ├── document_loader.py      # Đọc PDF/PPTX/DOCX, giữ metadata
+│   ├── document_loader.py      # Đọc PDF/PPTX/DOCX một lượt, giữ metadata
+│   ├── bo_nho_dem.py           # Cache theo content hash: tài liệu, OCR, chú thích ảnh, embedding
+│   ├── do_thoi_gian.py         # Đo thời gian từng bước Ingestion (bảng tổng kết sau mỗi lần build)
 │   ├── chunking.py             # Recursive Character Splitting
 │   ├── embedding.py            # Wrapper cho sentence-transformers
 │   ├── vector_store.py         # Wrapper cho FAISS (build, save, load, search)
@@ -70,11 +72,11 @@ rag-do-an/
 ├── data/
 │   ├── raw/                    # Tài liệu gốc upload vào
 │   ├── images/                 # Ảnh trích từ tài liệu (tự sinh khi build index)
+│   ├── cache/                  # Bộ nhớ đệm Ingestion (xoá lúc nào cũng an toàn - xem bên dưới)
 │   └── faiss_index/            # Index đã build (index.faiss + metadata.pkl + index_info.json)
 ├── tests/                      # pytest — chunking, retrieval, citation, streaming, OCR...
 ├── .streamlit/config.toml      # Bảng màu giao diện (theme chính thức của Streamlit)
 ├── pytest.ini                  # Cấu hình pytest + marker "slow"
-├── don_dep.py                  # Dọn cache và dữ liệu tự sinh lại được (xem trước trước khi xoá)
 ├── requirements.txt
 ├── .env.example
 ├── README.md
@@ -136,6 +138,58 @@ nhập ghim đáy). Thu gọn thanh bên bằng nút **«** là được toàn m
    sau mở app không cần build lại (trừ khi thêm/xoá tài liệu hoặc đổi model embedding / chunk
    size).
 
+## Chi phí xử lý tài liệu
+
+Nguyên tắc: **chỉ trả chi phí tính toán khi thực sự cần**. Tài liệu text tốt đọc rất nhanh;
+tài liệu scan chấp nhận chậm vì OCR; tài liệu nhiều hình chỉ gọi model vision cho những hình
+có giá trị; và **tài liệu đã xử lý rồi thì không xử lý lại**. Không có tuỳ chọn nào ở đây tắt
+OCR, Vision hay reranker để lấy tốc độ — đó là đổi chất lượng lấy thời gian, tức giải một bài
+toán khác.
+
+**Thêm một tài liệu không phải trả giá cho cả corpus.** Mỗi tài liệu được ghi kèm băm nội dung
+vào `index_info.json`; bấm "Đọc tài liệu" chỉ xử lý lại những file **mới hoặc đã đổi nội
+dung**, giữ nguyên vector của phần còn lại và gỡ vector của file đã bị xoá. So bằng băm nội
+dung chứ không phải thời điểm sửa file — `git checkout`, sao chép file hay đồng bộ cloud đều
+đổi `mtime` mà không đổi nội dung. Tắt bằng `BAT_INDEX_TANG_DAN=0`.
+
+**Bộ nhớ đệm ở `data/cache/`** giữ lại bốn thứ đắt nhất, tất cả đánh khoá theo băm **nội
+dung**: kết quả đọc từng tài liệu, OCR từng trang, chú thích ảnh của model vision, và vector
+embedding của từng chunk. Nhờ khoá theo nội dung, một hình dùng lại ở 20 slide chỉ tốn **một**
+lượt gọi model vision, và đổi tên file không làm mất cache. Đổi một tuỳ chọn ăn vào kết quả
+đọc (bật/tắt OCR, DPI render, ngưỡng dính chữ…) thì cache **tự trượt** — không có chuyện hệ
+thống lặng lẽ trả kết quả theo cấu hình cũ.
+
+Xoá cả thư mục `data/cache/` bất cứ lúc nào cũng **an toàn tuyệt đối**: mọi thứ trong đó đều
+tính lại được, chỉ mất thời gian chứ không mất dữ liệu. Thanh bên có sẵn nút **"Xoá cache"**
+kèm dung lượng đang chiếm. Tắt hẳn cache bằng `BAT_CACHE_INGESTION=0` (dùng khi cần **đo** chi
+phí thật của một lần build từ đầu).
+
+**Chỗ nào đang chậm thì có số để trả lời.** Sau mỗi lần "Đọc tài liệu", log in một bảng tổng
+kết thời gian từng bước (đọc text, nhận diện tiêu đề, render OCR, gọi model vision, chunking,
+embedding…) kèm số lần gọi và phần trăm. Tắt bằng `BAT_PROFILING_INGESTION=0`.
+
+Bảng dưới là output thật khi đọc giáo trình Bishop (758 trang, cache tắt để đo chi phí gốc):
+
+```
+PROFILING INGESTION (tổng 45.0s)
+BƯỚC                               SỐ LẦN   TỔNG (s)   TB (ms)      %
+---------------------------------------------------------------------
+pdf_doc_text_trang                    758       39.5      52.1  87.8%
+pdf_trich_anh                           1        4.1    4121.5   9.2%
+pdf_nhan_dien_tieu_de                 758        0.7       1.0   1.6%
+```
+
+Đọc bảng này ra được ngay một kết luận: với tài liệu **thuần chữ** thì 87,5% thời gian nằm ở
+việc đọc text, chứ không phải ở trích ảnh hay nhận diện tiêu đề — tức mọi nỗ lực tối ưu hai
+bước kia đều là tối ưu nhầm chỗ. Với tài liệu **scan** thì bức tranh đảo ngược hoàn toàn:
+OCR chiếm gần như toàn bộ (đo được 32,9 giây **mỗi trang**, xem KET_QUA_DO_DAC.md §7.3).
+
+**Ảnh không mang nội dung bị loại trước khi render.** Icon, logo góc trang, dải trang trí và
+hình lặp lại kiểu watermark đều bị lọc trước cả bước render — mỗi ảnh giữ lại kéo theo một
+lượt render, một file trên đĩa, một lượt gọi model vision (~1,9 giây) và một vector trong
+index. Đo trên corpus thật, số bản ghi ảnh giảm 401 → 261 ở một bài giảng IoT và 219 → 168 ở
+một file DOCX, **trong khi số bản ghi văn bản không đổi một đơn vị nào**.
+
 ## Sự cố thường gặp
 
 **`ConnectError: [WinError 10061] …` / `Failed to connect to Ollama`** — máy chủ Ollama chưa
@@ -174,8 +228,12 @@ vậy là tái tạo lại đúng bug prompt bị cắt im lặng.
 pytest tests/ -v
 ```
 
-Một số ít test phải nạp model thật nên chạy chậm; bỏ qua chúng bằng `pytest -m "not slow"`
-trong lúc đang sửa code.
+**379 test.** Một số ít phải nạp model thật nên chạy chậm; bỏ qua chúng bằng
+`pytest -m "not slow"` trong lúc đang sửa code.
+
+`tests/conftest.py` trỏ `data/cache/` và `data/images/` sang thư mục tạm cho cả phiên test —
+không test nào được ghi vào thư mục dữ liệu thật của dự án. Đây là loại lỗi **không làm test
+đỏ** nên sẽ không ai phát hiện qua CI, vì vậy phải chặn từ gốc một lần cho mọi test.
 
 ## Đánh giá (Evaluation)
 
@@ -491,6 +549,21 @@ Lý do đầy đủ nằm trong comment ngay tại chỗ trong code và ở ARCH
   thật đã đo được (§5.41).
 - **Đọc được text box trong DOCX** (sơ đồ, khung "Lưu ý", trích dẫn nổi bật) và **một file hỏng
   không làm sập cả lần build** (§5.52, §5.53).
+- **Ingestion đọc MỘT LƯỢT, và không đọc lại thứ đã đọc**: bản trước duyệt mỗi PDF hai lần và
+  đọc lại mỗi trang dính chữ tới 5 lần. Nay mỗi trang đi qua đúng một lượt, mức `x_tolerance`
+  được hiệu chỉnh theo tài liệu, và kết quả đọc / OCR / chú thích ảnh / embedding đều được
+  cache theo **băm nội dung**. Đo trên Bishop (trung vị 3 lần): 58,8s → **48,3s** với **cùng
+  809 bản ghi** và chữ tách **tốt hơn** ở 540 trang; lần đọc thứ hai gần như bằng 0 (§5.66).
+- **Song song hoá đúng chỗ có lợi**: OCR và chú thích ảnh chạy nhiều luồng vì chúng ngồi chờ
+  Ollama trả lời (đo được: 8 trang Bishop 262,9s → 106,4s, nhanh 2,47×). Đọc PDF thì **cố ý
+  không** song song hoá — nó là việc thuần CPU bị GIL chặn, và sau khi có cache thì lần build
+  thứ hai gần như không còn đọc lại tài liệu nào (§5.66).
+- **Ngữ cảnh quá lớn thì cắt ĐOẠN, không hạ `num_ctx`**: hạ `num_ctx` không làm prompt ngắn
+  lại, nó chỉ chuyển quyền quyết định cắt chỗ nào sang Ollama — mà Ollama luôn cắt từ **đầu**,
+  tức xoá đúng đoạn trích liên quan nhất (§5.60). Nay hệ thống tự bỏ các đoạn xếp hạng **thấp
+  nhất** và ghi rõ vào log. Câu hỏi đơn giản cũng được cấp ngân sách nhỏ hơn (12 thay vì 30
+  ứng viên rerank); `TOP_K` thì **cố ý giữ nguyên** vì mọi ngưỡng của hệ thống đã hiệu chỉnh
+  trên nó (§5.67).
 - **LLM-as-judge dùng JSON Schema** để ép Ollama trả đúng field, nhưng schema **không** ràng
   buộc được khoảng giá trị nên việc kiểm thang điểm phải nằm ở code (§5.6, §5.48).
 - **Hiểu câu hỏi nối tiếp bằng cách TẤT ĐỊNH, không phải bằng LLM**: đã thử query rewriting
@@ -573,6 +646,12 @@ vét cạn nên độ trễ tăng tuyến tính theo số chunk. Chạy `python 
 **2. Giảm độ trễ thật (chứ không chỉ độ trễ cảm nhận).** Ba hướng theo chi phí tăng dần: dùng
 model không sinh suy luận cho câu hỏi truy xuất thường (giữ qwen3 cho câu kiểm chứng), lượng tử
 hoá thấp hơn (q4 → q3), hoặc chạy GPU. Cả ba đều phải đo lại chất lượng trước khi chốt.
+
+*Phần chi phí INGESTION đã làm xong* (§5.66, KET_QUA_DO_DAC.md §7.3). Việc còn lại ở phía truy
+vấn: **adaptive TOP-K**. Nó bị hoãn có chủ đích chứ không phải bỏ quên — `TOP_K=4` là giá trị
+mà toàn bộ Recall@K, MRR và các ngưỡng lọc đã hiệu chỉnh trên đó, nên hạ nó cho "câu hỏi đơn
+giản" mà không đo lại chính là đổi độ chính xác lấy tốc độ. Cần một phép đo Recall@K tách theo
+nhóm độ phức tạp câu hỏi trước đã.
 
 **3. Giám khảo mạnh hơn cho evaluation.** Với `qwen3:4b`, 1/8 lần chấm cho kết quả ngược hẳn
 (§5.43) — trung vị 3 lần là vá chứ không phải sửa gốc. Đặt `JUDGE_MODEL` sang model lớn hơn rồi

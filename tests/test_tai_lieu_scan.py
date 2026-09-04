@@ -106,7 +106,7 @@ def test_canh_bao_khi_tai_lieu_khong_doc_duoc_chu_nao(tmp_path, caplog):
         {"nguon": "sach_scan.pdf", "trang": 1, "noidung": f"{MOC_ANH} x", "loai_noi_dung": "anh"},
     ]
     with caplog.at_level("ERROR"):
-        _canh_bao_tai_lieu_khong_doc_duoc(cac_trang, tmp_path)
+        _canh_bao_tai_lieu_khong_doc_duoc(cac_trang, [tmp_path / "sach_scan.pdf"])
 
     assert any("KHÔNG ĐỌC ĐƯỢC NỘI DUNG" in r.message for r in caplog.records)
     assert any("sach_scan.pdf" in str(r.args) for r in caplog.records)
@@ -120,7 +120,7 @@ def test_khong_canh_bao_khi_tai_lieu_doc_duoc_binh_thuong(tmp_path, caplog):
         {"nguon": "binh_thuong.pdf", "trang": 1, "noidung": "x" * 500},
     ]
     with caplog.at_level("ERROR"):
-        _canh_bao_tai_lieu_khong_doc_duoc(cac_trang, tmp_path)
+        _canh_bao_tai_lieu_khong_doc_duoc(cac_trang, [tmp_path / "binh_thuong.pdf"])
 
     assert not [r for r in caplog.records if "KHÔNG ĐỌC ĐƯỢC" in r.message]
 

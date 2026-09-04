@@ -34,11 +34,40 @@ from rag.lexical_search import BM25
 logger = logging.getLogger(__name__)
 
 
+def so_sanh_bam_tai_lieu(
+    bam_trong_index: Dict[str, str], bam_tren_dia: Dict[str, str]
+) -> Tuple[List[str], List[str], List[str]]:
+    """So sổ băm của index với thực tế thư mục -> (cần đọc lại, cần xoá, giữ nguyên).
+
+    Tách thành hàm THUẦN (chỉ nhận hai dict, không đụng đĩa, không đụng FAISS) có chủ đích:
+    đây là phần quyết định của build tăng dần, và một quyết định sai ở đây không gây lỗi mà
+    chỉ khiến index thiếu hoặc thừa một tài liệu - đúng loại hỏng im lặng chỉ lộ ra qua chất
+    lượng câu trả lời. Hàm thuần thì kiểm được bằng test bảng, không cần dựng cả một lần build.
+
+      - cần đọc lại: file mới, hoặc băm khác với băm đã ghi lúc build.
+      - cần xoá:     tên còn trong sổ băm nhưng file đã biến mất khỏi thư mục. Không gỡ thì
+                     hệ thống vẫn trả lời bằng một tài liệu người dùng tưởng đã xoá.
+      - giữ nguyên:  băm khớp -> vector cũ vẫn đúng, không đụng tới.
+
+    Thứ tự trả về giữ nguyên thứ tự của `bam_tren_dia` để lần build sau xử lý tài liệu theo
+    đúng thứ tự người dùng nhìn thấy trên giao diện.
+    """
+    can_doc, giu_nguyen = [], []
+    for ten, bam in bam_tren_dia.items():
+        (giu_nguyen if bam_trong_index.get(ten) == bam else can_doc).append(ten)
+    can_xoa = [ten for ten in bam_trong_index if ten not in bam_tren_dia]
+    return can_doc, can_xoa, giu_nguyen
+
+
 class VectorStore:
     def __init__(self, dimension: int):
         self.index = faiss.IndexFlatIP(dimension)
         self.metadata: List[Dict] = []
         self.thong_tin: Dict = {}
+        # {tên file: băm nội dung} của các tài liệu đang có trong index. Luồng build tăng
+        # dần (app.py) đọc dict này để biết tài liệu nào đã đổi; luu() ghi nó xuống
+        # index_info.json để nó sống qua các lần mở app.
+        self.bam_tai_lieu: Dict[str, str] = {}
         self._xoa_cache()
 
     # ------------------------------------------------------------------
@@ -122,6 +151,9 @@ class VectorStore:
 
         Trả về số vector đã xóa (0 nếu file không có trong index).
         """
+        # Xoá luôn khỏi sổ băm: một tài liệu không còn vector nào trong index mà vẫn
+        # được ghi là "đã xử lý" sẽ khiến lần build sau bỏ qua nó và index thiếu im lặng.
+        self.bam_tai_lieu.pop(ten_file, None)
         vi_tri_xoa = [i for i, m in enumerate(self.metadata) if m["nguon"] == ten_file]
         if not vi_tri_xoa:
             return 0
@@ -193,6 +225,11 @@ class VectorStore:
 
         # "Vân tay" cấu hình lúc build - xem giải thích ở config.INDEX_INFO_FILE.
         self.thong_tin = {
+            # Băm nội dung của từng tài liệu đã vào index: {tên file: hash}. Đây là thứ cho
+            # phép lần build sau biết tài liệu nào đã đổi mà chỉ xử lý lại đúng những tài
+            # liệu đó (config.BAT_INDEX_TANG_DAN). Ghi theo TÊN FILE vì đó là khoá mà
+            # metadata của chunk đang dùng ("nguon") - có vậy mới xoá được đúng phần cần xoá.
+            "bam_tai_lieu": dict(getattr(self, "bam_tai_lieu", {}) or {}),
             "embedding_model": config.EMBEDDING_MODEL_NAME,
             "chunk_size_tokens": config.CHUNK_SIZE_TOKENS,
             "chunk_overlap_tokens": config.CHUNK_OVERLAP_TOKENS,
@@ -221,11 +258,15 @@ class VectorStore:
         with open(metadata_path, "rb") as f:
             obj.metadata = pickle.load(f)
         obj.thong_tin = {}
+        obj.bam_tai_lieu = {}
         if Path(info_path).exists():
             try:
                 obj.thong_tin = json.loads(Path(info_path).read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
                 logger.warning("Không đọc được %s - bỏ qua kiểm tra tương thích index.", info_path)
+        # Index build bằng bản cũ không có khoá này -> dict rỗng, tức mọi tài liệu bị coi là
+        # "chưa xử lý" và được đọc lại đúng một lần. Giảm cấp về hành vi cũ, không phải lỗi.
+        obj.bam_tai_lieu = dict(obj.thong_tin.get("bam_tai_lieu") or {})
         obj._xoa_cache()
         return obj
 

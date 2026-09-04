@@ -553,6 +553,120 @@ Nhất quán trên cả hai bộ:
 
 ---
 
+### 7.3 Tối ưu luồng Ingestion — trước và sau
+
+Đo bằng cách chạy **cùng một corpus qua hai phiên bản code** (bản trước tối ưu lấy từ
+`git worktree` ở commit gốc, bản sau là code hiện tại), rồi so **cả thời gian lẫn từng bản
+ghi sinh ra**. So đầu ra là phần bắt buộc: một tối ưu ingestion làm nội dung index xấu đi là
+một tối ưu đã thất bại, dù nó nhanh tới đâu — và khác biệt kiểu đó không thể phát hiện bằng
+cách đọc lại code.
+
+Cấu hình khi đo: `BAT_CHU_THICH_ANH=0`, `BAT_CACHE_INGESTION=0` (để đo **chi phí thật của lần
+đọc đầu tiên**, không lẫn phần cache trúng).
+
+**Thời gian đọc, cùng nội dung đầu vào**
+
+Bishop được đo **3 lần mỗi phiên bản** vì lần đo đơn lẻ đầu tiên cho 47,6 s ở bản mới rồi
+55,4 s ở một lần khác — chênh lệch 16% giữa hai lần chạy cùng một code, tức đủ lớn để nuốt
+trọn hiệu ứng cần đo. Ghi cả khoảng giá trị chứ không chỉ một con số:
+
+| Tài liệu | Trước | Sau | Chênh (trung vị) |
+|---|---:|---:|---:|
+| Bishop — trung vị 3 lần | 58,8 s | **48,3 s** | **−17,9%** |
+| Bishop — khoảng (min–max) | 53,8–59,9 s | **48,0–50,7 s** | hai khoảng **không chồng lấn** |
+| 8 tài liệu trộn (4 PDF + 2 DOCX + 2 PPTX), 1 lần | 6,62 s | **6,16 s** | −7,0% |
+
+Hai khoảng không chồng lấn (lần chậm nhất của bản mới vẫn nhanh hơn lần nhanh nhất của bản
+cũ) là căn cứ để nói chênh lệch này có thật chứ không phải nhiễu.
+
+Khoản tiết kiệm đến từ ba chỗ, không chỗ nào là "làm ít việc hơn": bỏ lượt duyệt PDF thứ hai
+(trước đây `trich_anh_pdf` mở lại cả file và gọi `extract_text()` lần nữa cho từng trang), bỏ
+lượt `bang.extract()` thừa cho mỗi bảng, và hiệu chỉnh `x_tolerance` theo tài liệu thay vì dò
+lại 4 mức trên **mọi** trang dính chữ.
+
+**Nội dung sinh ra: không mất gì, và tốt lên ở chỗ đo được**
+
+| | Trước | Sau |
+|---|---:|---:|
+| Bản ghi từ Bishop | 809 | **809** |
+| Bản ghi văn bản (8 tài liệu trộn) | 372 | **372** |
+| Độ dính chữ trung bình mỗi trang (Bishop) | 0,0026 | **0,0026** |
+| Số trang Bishop mà bản mới dính chữ **hơn** bản cũ | — | **0** |
+
+540/728 trang Bishop CÓ NỘI DUNG (758 trang PDF, 30 trang rỗng hoặc mục lục bị loại) có khác
+biệt, và mọi khác biệt đều nghiêng về phía bản mới —
+phép hiệu chỉnh `x_tolerance` theo tài liệu chọn được mức tách từ tốt hơn:
+
+```
+CŨ : p(X = xi,Y = yj)      lnp(D|α,β)      where i = 1,...,D
+MỚI: p(X = xi, Y = yj)     ln p(D|α, β)    where i = 1, . . . , D
+```
+
+Trên `PaperQA.pdf`, ba trang mà bản cũ để lọt chữ dính (`encoders[19,64],whicharetrained…`)
+nay được tách đúng. Ghi lại vì đây **không phải mục tiêu** của đợt tối ưu — nó là hệ quả phụ
+của việc đổi thứ tự thử tham số, và chỉ phát hiện được nhờ so từng bản ghi.
+
+> **Một hồi quy đã suýt lọt.** Bản đầu của phép dừng sớm dùng chung ngưỡng
+> `TY_LE_DINH_CHU_DE_DOC_LAI = 0,10` cho hai câu hỏi khác nhau: *"trang này có đáng đọc lại
+> không"* và *"bản đọc lại đã đủ tốt chưa"*. Nó chấp nhận ngay mức đầu tiên hạ độ dính từ 30%
+> xuống 9%, để lọt `RAGmodelsretrievetextfromacorpus` vào index. Sửa bằng ngưỡng riêng
+> `TY_LE_DINH_CHU_DAT_YEU_CAU = 0,02`, lấy từ chính số đo cũ (PDF đọc tốt: 0,0–1,5%; trang
+> hỏng: 41,7%). Chi tiết: ARCHITECTURE.md §5.66.
+
+**Lọc ảnh: bớt vector rác, không đụng tới văn bản**
+
+| Tài liệu | Bản ghi ảnh trước | sau | Bản ghi văn bản (trước → sau) |
+|---|---:|---:|---:|
+| Chapter 1. Introduction to IoT.pptx | 401 | **261** | 228 → 228 |
+| Bai1-TongQuanDuLieu.docx | 219 | **168** | 7 → 7 |
+| Bai3-GomCum.docx | 75 | **61** | 4 → 4 |
+| NHÓM 6 - LUẬT HÌNH SỰ.pptx | 18 | **13** | 51 → 51 |
+| 4 file PDF trong bộ đo | 21 | **21** | không đổi |
+
+Cột cuối là điều quan trọng nhất: **không một bản ghi văn bản nào bị mất**. Phần bị loại là
+icon, logo góc trang, dải trang trí và hình lặp lại kiểu watermark — mỗi cái trước đây tốn một
+lượt render, một file trên đĩa, một lượt gọi model vision (~1,9 s) và một vector trong index.
+PDF không giảm bản ghi ảnh nào, đúng như dự đoán: bộ lọc nhắm vào thứ mà slide và tài liệu
+Word hay chèn, không phải hình trong PDF học thuật.
+
+**Gọi OCR song song** — đo trên 8 trang Bishop thật sự cần OCR (trang 305–316), cùng một tập
+trang, cache rỗng ở mỗi lần đo, `qwen2.5vl:3b` chạy trên GPU:
+
+| Cấu hình | Tổng | Mỗi trang | So với tuần tự |
+|---|---:|---:|---:|
+| `SO_WORKER_VISION=1` (hành vi cũ) | 262,9 s | 32,9 s | — |
+| `SO_WORKER_VISION=4` | **106,4 s** | **13,3 s** | **nhanh 2,47×** |
+| Cache đầy (lần build thứ hai) | **0,07 s** | — | **~3.750×** |
+
+Con số 32,9 giây/trang giải thích vì sao đây là bước đắt nhất của cả luồng: một cuốn sách có
+vài trăm trang hỏng font sẽ mất hàng giờ ở bản cũ. Mức tăng tốc 2,47× (không phải 4×) là hợp
+lý — mọi luồng đều xếp hàng qua **một** máy chủ Ollama, phần song song hoá được chỉ là thời
+gian chờ mạng và phần nạp/xả giữa các lượt.
+
+**Cache tài liệu — lần đọc thứ hai**
+
+| | Lần 1 (cache rỗng) | Lần 2 (cache đầy) |
+|---|---:|---:|
+| `CV-01-Introduction.pdf` (14 trang, 8 ảnh) | 0,76 s | **0,01 s** |
+
+Đây mới là con số nói đúng trải nghiệm hằng ngày: thêm một tài liệu vào corpus 25 file không
+còn nghĩa là trả lại chi phí của 25 file kia. Cùng với index tăng dần, 25 tài liệu không đổi
+được giữ nguyên vector và không đi qua bất kỳ bước nào của luồng Ingestion.
+
+**Chưa đo được** (ghi ra để không ai tưởng đã đo đủ):
+
+- **Chi phí lần build đầu của TOÀN BỘ corpus 26 tài liệu với OCR bật.** Phép đo này bị dừng
+  giữa chừng vì riêng Bishop đã cần OCR hàng trăm trang ở 32,9 s/trang — tức nhiều giờ cho
+  một lần đo. Các con số ở trên đo trên từng phần, và mức tiết kiệm của mỗi phần thì đo được
+  riêng rẽ.
+- **Ảnh hưởng của lọc ảnh lên Recall@K.** Việc bỏ 140 bản ghi logo *nên* cải thiện độ chính
+  xác (bớt vector rác cạnh tranh suất TOP_K), nhưng chưa chạy lại `run_evaluation.py` trên
+  index mới nên chưa được nói đó là một cải thiện.
+- **Mức lợi thật của ngân sách thích ứng lúc truy vấn** (§5.67): số ứng viên rerank giảm
+  30 → 12 cho câu hỏi đơn giản, nhưng chưa đo độ trễ trước/sau trên bộ câu hỏi thật.
+
+---
+
 ## 8. Những gì chưa đo được
 
 Ghi ra để không ai đọc báo cáo rồi tưởng đã đo đủ:

@@ -1,0 +1,5 @@
+# Bộ nhớ đệm của luồng Ingestion (rag/bo_nho_dem.py): kết quả đọc tài liệu, OCR, chú thích
+# ảnh và vector embedding. Đây là dữ liệu SINH RA ĐƯỢC từ data/raw - đưa vào git thì repo
+# phình thêm hàng chục MB mỗi lần build mà không thêm một thông tin nào không tái tạo được,
+# và cache của máy này cũng không dùng lại được trên máy khác nếu cấu hình khác đi.
+data/cache/
