@@ -1,15 +1,4 @@
-"""Test ĐẦU-CUỐI cho build index TĂNG DẦN, chạy qua đúng nút "Đọc tài liệu" của giao diện.
-
-Vì sao phải test ở tầng này chứ không chỉ test hàm so sánh băm: quyết định "file nào cần đọc
-lại" là hàm thuần và đã có test bảng riêng, nhưng thứ dễ hỏng hơn nhiều lại là phần GHÉP NỐI
-trong app.py - xoá vector cũ trước hay sau khi thêm bản mới, ghi băm cho tài liệu nào, và
-điều gì xảy ra khi một file đọc hỏng. Sai ở đó không gây exception; nó chỉ khiến index thiếu
-một tài liệu, hoặc chứa hai phiên bản của cùng một tài liệu, và người dùng chỉ phát hiện qua
-một câu trả lời sai.
-
-AppTest chạy thẳng app.py trong tiến trình. Model embedding và reranker được thay bằng đồ
-giả: thứ cần kiểm ở đây là LUỒNG BUILD, không phải chất lượng vector.
-"""
+"""Test ĐẦU-CUỐI cho build index TĂNG DẦN, chạy qua đúng nút "Đọc tài liệu" của giao diện."""
 
 import sys
 import tempfile
@@ -38,8 +27,6 @@ class _EmbeddingGia:
         return np.array([[1.0, 0.0, 0.0, 0.0]] * len(texts), dtype="float32")
 
     def encode_tai_lieu(self, texts):
-        # Vector phụ thuộc nội dung để hai chunk khác nhau không trùng vector - có vậy mới
-        # phát hiện được trường hợp index giữ nhầm bản CŨ của một tài liệu đã sửa.
         return np.array(
             [[1.0, len(t) % 7, (len(t) * 3) % 5, 1.0] for t in texts], dtype="float32"
         )
@@ -48,9 +35,8 @@ class _EmbeddingGia:
         return lambda t: len(t.split())
 
     def chuyen_thiet_bi(self, moi):
-        """Có mặt để khớp interface thật của EmbeddingService (rag/tai_nguyen_gpu.py gọi tới
-        ở ranh giới giai đoạn). Test double thiếu method này thì lỗi lệch interface sẽ hiện
-        ra dưới dạng AttributeError giữa luồng build, chứ không phải một test đỏ rõ ràng."""
+        """Có mặt để khớp interface thật của EmbeddingService, tránh lỗi lệch interface chỉ lộ ra
+        dưới dạng AttributeError giữa luồng build."""
         self.thiet_bi = moi
         return False
 
@@ -71,12 +57,7 @@ def _van_ban(nhan: str) -> str:
 
 @pytest.fixture
 def moi_truong(monkeypatch):
-    """Thư mục tài liệu + thư mục index riêng, model giả, không đụng tới Ollama.
-
-    Dùng `tempfile` thay vì fixture `tmp_path`: FAISS ghi file qua `fopen` ở tầng C++ theo
-    ANSI codepage nên không ghi được vào đường dẫn có dấu tiếng Việt, mà `tmp_path` thì lấy
-    theo display name của Windows (cùng lý do đã ghi ở test_retrieval.py).
-    """
+    """Thư mục tài liệu + thư mục index riêng, model giả, không đụng tới Ollama."""
     with tempfile.TemporaryDirectory() as goc:
         goc = Path(goc)
         thu_muc_raw = goc / "raw"
@@ -95,8 +76,6 @@ def moi_truong(monkeypatch):
         monkeypatch.setattr("rag.reranker.tao_reranker_neu_bat", lambda: None)
         monkeypatch.setattr("rag.rag_pipeline.kiem_tra_may_chu_llm", lambda: None)
 
-        # Đếm những tài liệu THẬT SỰ đi vào luồng xử lý. Đây là thứ cả tính năng này tồn tại
-        # để giảm, nên nó phải được đo trực tiếp chứ không suy ra từ số chunk.
         da_xu_ly: list = []
         goc_ham = document_loader.doc_tai_lieu_co_cache
 

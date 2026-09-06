@@ -1,19 +1,4 @@
-"""Test cho việc xử lý lỗi KHÔNG KẾT NỐI ĐƯỢC máy chủ Ollama.
-
-Vì sao đáng có một file test riêng cho một lỗi hạ tầng: đây là hỏng hóc số một khi đem hệ
-thống chạy trên một máy mới (Ollama là tiến trình nền riêng, không tự lên cùng Streamlit),
-và cái bẫy nằm ở chỗ rất dễ tưởng là đã xử lý rồi:
-
-  - Thư viện ollama CÓ dịch httpx.ConnectError sang ConnectionError kèm thông báo tử tế -
-    nhưng chỉ ở đường gọi không streaming (`_request_raw`).
-  - Đường streaming (đường DUY NHẤT hệ thống này dùng để sinh câu trả lời) mở kết nối bên
-    trong generator, tức là ở lần lặp ĐẦU TIÊN chứ không phải lúc gọi hàm - nằm ngoài khối
-    bọc lỗi đó. Kết quả: người dùng nhận nguyên traceback "ConnectError: [WinError 10061]
-    ... target machine actively refused it", không một chữ nào nhắc tới Ollama.
-
-Nên các test dưới đây đều bắt chước ĐÚNG cách hỏng đó (lỗi chỉ bung ra khi lặp), chứ không
-phải cách hỏng dễ test hơn là ném lỗi ngay lúc gọi.
-"""
+"""Test cho việc xử lý lỗi KHÔNG KẾT NỐI ĐƯỢC máy chủ Ollama."""
 
 import sys
 from pathlib import Path
@@ -46,12 +31,7 @@ class EmbeddingGia:
 
 
 class ClientOllamaChuaChay:
-    """Bắt chước ollama.Client khi máy chủ chưa chạy, ở chế độ stream=True.
-
-    Điểm mấu chốt: `chat()` TRẢ VỀ BÌNH THƯỜNG, lỗi chỉ nổ ra khi generator được lặp - đúng
-    như httpx.Client.stream() thật. Một fake ném lỗi ngay tại `chat()` sẽ vẫn xanh kể cả
-    khi bug quay lại, nên nó vô dụng.
-    """
+    """Bắt chước ollama.Client khi máy chủ chưa chạy, ở chế độ stream=True."""
 
     def __init__(self, loi=None):
         self.loi = loi or httpx.ConnectError("[WinError 10061] ... actively refused it")
@@ -59,7 +39,7 @@ class ClientOllamaChuaChay:
     def chat(self, **_):
         def sinh():
             raise self.loi
-            yield  # pragma: no cover - chỉ để hàm này là generator
+            yield  # pragma: no cover
 
         return sinh()
 
@@ -83,10 +63,6 @@ def khong_chan_boi_nguong(monkeypatch):
     monkeypatch.setattr(config, "NGUONG_DIEM_TOI_THIEU", 0.0)
 
 
-# ======================================================================
-# Lỗi kết nối phải thành một lỗi CÓ NGHĨA, không phải traceback httpx thô
-# ======================================================================
-
 def test_loi_ket_noi_thanh_loi_rieng_co_huong_dan():
     pipeline = _pipeline(ClientOllamaChuaChay())
 
@@ -94,7 +70,6 @@ def test_loi_ket_noi_thanh_loi_rieng_co_huong_dan():
         pipeline.hoi_dap("Tài liệu nói về gì?")
 
     thong_bao = str(loi.value)
-    # Ba thứ người dùng cần để tự sửa: hỏng ở đâu, host nào, chạy lệnh gì.
     assert "Ollama" in thong_bao
     assert config.OLLAMA_HOST in thong_bao
     assert f"ollama pull {config.OLLAMA_MODEL}" in thong_bao
@@ -130,10 +105,6 @@ def test_truy_xuat_van_chay_khi_ollama_chet():
     assert len(cac_doan) == 1
     assert cac_doan[0]["nguon"] == "a.pdf"
 
-
-# ======================================================================
-# Kiểm tra sẵn sàng TRƯỚC khi người dùng hỏi (cảnh báo ở thanh bên)
-# ======================================================================
 
 class _Model:
     def __init__(self, ten):

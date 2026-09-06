@@ -1,16 +1,4 @@
-"""Test cho việc viết lại câu hỏi NỐI TIẾP theo ngữ cảnh hội thoại.
-
-Ba nhóm điều cần khoá lại, theo đúng thứ tự quan trọng:
-
-1. CHI PHÍ. Toàn bộ thiết kế hai tầng chỉ có nghĩa nếu tầng đắt hầu như không chạy. Test
-   đếm thẳng số lần gọi model, chứ không tin vào việc "chắc là nó không gọi".
-2. AN TOÀN. Mọi đường thất bại của tầng 2 (model hỏng, model trả rác, model trả lời thay vì
-   viết lại) đều phải lùi về ĐÚNG câu gốc - tức về đúng hành vi của bản chưa có tính năng này.
-3. ĐỘ CHÍNH XÁC của tầng nhận diện, đo trên một bộ ca có nhãn thay vì kiểm từng ca lẻ.
-
-Không dùng model thật ở đâu cả: hành vi cần kiểm là logic điều phối, không phải chất lượng
-model viết lại (thứ đó đo bằng evaluation/kiem_dinh_viet_lai.py).
-"""
+"""Test cho việc viết lại câu hỏi NỐI TIẾP theo ngữ cảnh hội thoại."""
 
 import sys
 from pathlib import Path
@@ -51,12 +39,6 @@ LICH_SU = [
 ]
 
 
-# ======================================================================
-# Tầng 1: nhận diện câu nối tiếp (tất định)
-# ======================================================================
-
-# Bộ ca có nhãn. Để ở dạng bảng thay vì viết mỗi ca một hàm test, vì thứ đáng biết là TỈ LỆ
-# đúng trên cả bộ - một ca lẻ sai không nói lên gì, còn bộ này tụt thì mới là hồi quy thật.
 CAC_CA_TIEP_NOI = [
     ("Thế còn dấu hiệu thứ hai thì sao?", True),
     ("Vậy còn trường hợp không có lỗi?", True),
@@ -87,9 +69,7 @@ def test_nhan_dien_cau_noi_tiep(cau_hoi, mong_doi):
 
 
 def test_khong_co_lich_su_thi_khong_bao_gio_la_noi_tiep():
-    """Câu đầu tiên của phiên không thể nối tiếp cái gì, dù nó trông giống đến đâu.
-
-    Viết lại nó cũng vô nghĩa - không có ngữ cảnh nào để lấy chủ đề ra."""
+    """Câu đầu tiên của phiên không thể nối tiếp cái gì, dù nó trông giống đến đâu."""
     assert la_cau_hoi_tiep_noi("Thế còn cái kia?", []) is False
     assert la_cau_hoi_tiep_noi("Thế còn cái kia?", None) is False
 
@@ -99,10 +79,6 @@ def test_lich_su_chi_co_cau_tra_loi_cung_khong_tinh():
     chi_tra_loi = [{"role": "assistant", "content": "Xin chào"}]
     assert la_cau_hoi_tiep_noi("Thế còn cái kia?", chi_tra_loi) is False
 
-
-# ======================================================================
-# Chi phí: tầng đắt không được chạy khi không cần
-# ======================================================================
 
 def test_cau_hoi_doc_lap_di_thang_khong_ghep_gi():
     """Câu tự đứng được không cần ngữ cảnh, và cũng không được gánh thêm chi phí nào."""
@@ -115,28 +91,20 @@ def test_cau_hoi_doc_lap_di_thang_khong_ghep_gi():
 
 
 def test_duong_mac_dinh_ghep_ngu_canh_KHONG_goi_model():
-    """Đường mặc định phải hoàn toàn TẤT ĐỊNH.
-
-    Đây là lý do chính khiến hướng ghép ngữ cảnh được chọn thay cho query rewriting (§5.58):
-    một bước đứng chắn trước toàn bộ truy xuất mà lại không tất định thì mọi metric phía sau
-    mất khả năng so sánh giữa hai lần chạy (§5.46)."""
+    """Đường mặc định phải hoàn toàn TẤT ĐỊNH."""
     client = ClientGia(tra_ve="không nên được dùng")
     ket_qua = chuan_bi_truy_van("Thế còn dấu hiệu thứ hai?", LICH_SU, client=client)
     assert client.so_lan_goi == 0
     assert ket_qua["la_tiep_noi"] is True
     assert ket_qua["da_viet_lai"] is False
-    # Truy vấn chính mang đủ từ khoá chủ đề mà câu gốc không hề có.
     assert "Vi phạm pháp luật" in ket_qua["cau_hoi_chinh"]
     assert "dấu hiệu thứ hai" in ket_qua["cau_hoi_chinh"]
-    # Câu gốc giữ nguyên: giao diện hiện lại đúng thứ người dùng gõ, và truy_xuat() dùng nó
-    # làm một nhánh riêng trong RRF.
     assert ket_qua["cau_hoi_goc"] == "Thế còn dấu hiệu thứ hai?"
 
 
 def test_ngu_canh_cho_llm_chi_chua_cau_hoi_khong_chua_cau_tra_loi():
-    """Câu trả lời trước là lời của CHÍNH MODEL, không phải tài liệu. Đưa nó vào prompt như
-    một nguồn là mở đúng cánh cửa mà cả hệ thống tồn tại để đóng - model sẽ trích dẫn lại
-    lời của mình như thể đó là căn cứ trong tài liệu."""
+    """Ngữ cảnh cho LLM chỉ chứa câu hỏi trước, không chứa câu trả lời trước - đó là lời của
+    chính model, không phải tài liệu."""
     ket_qua = chuan_bi_truy_van("Thế còn dấu hiệu thứ hai?", LICH_SU)
     ngu_canh = ket_qua["ngu_canh_llm"]
     assert "Vi phạm pháp luật gồm những dấu hiệu nào?" in ngu_canh
@@ -163,22 +131,15 @@ def test_bat_duong_llm_thi_ban_viet_lai_thay_lam_truy_van_chinh(monkeypatch):
     assert client.so_lan_goi == 1
     assert ket_qua["da_viet_lai"] is True
     assert ket_qua["cau_hoi_chinh"] == "Dấu hiệu thứ hai của vi phạm pháp luật là gì?"
-    # Bản ghép ngữ cảnh không bị vứt đi mà lùi xuống thành một nhánh phụ - hai cách hiểu
-    # cùng được thử, đúng việc RRF sinh ra để làm.
     assert any("Vi phạm pháp luật" in v for v in ket_qua["cac_truy_van_phu"])
 
-
-# ======================================================================
-# An toàn: mọi đường hỏng đều lùi về câu gốc
-# ======================================================================
 
 GOC = "Thế còn dấu hiệu thứ hai?"
 
 
 def test_model_chet_thi_giu_nguyen_cau_goc():
-    """Ollama chưa chạy là chuyện rất hay gặp. Một tính năng phụ trợ không được phép biến
-    nó thành lỗi của cả lượt hỏi - người dùng sẽ gặp thông báo tử tế ở bước sinh câu trả lời,
-    nơi có hướng dẫn xử lý đầy đủ."""
+    """Model chết thì giữ nguyên câu hỏi gốc - một tính năng phụ trợ không được phép biến thành
+    lỗi của cả lượt hỏi."""
     assert viet_lai_cau_hoi(GOC, LICH_SU, ClientGia(loi=ConnectionError("chưa bật"))) == GOC
 
 
@@ -200,10 +161,7 @@ def test_ban_viet_lai_ngan_hon_cau_goc_bi_loai():
 
 
 def test_model_tra_loi_thay_vi_viet_lai_bi_loai():
-    """Ca đã gặp thật với model nhỏ: nó bỏ qua chỉ dẫn và trả lời luôn câu hỏi.
-
-    Nếu nhận bản này thì hệ thống sẽ đi truy xuất bằng một câu KHẲNG ĐỊNH, và tệ hơn, câu
-    khẳng định đó do chính model bịa ra chứ không lấy từ tài liệu."""
+    """Ca đã gặp thật với model nhỏ: nó bỏ qua chỉ dẫn và trả lời luôn câu hỏi."""
     tra_loi = ("Dấu hiệu thứ hai của vi phạm pháp luật là yếu tố lỗi của chủ thể thực hiện "
                "hành vi trái pháp luật đó")
     assert viet_lai_cau_hoi(GOC, LICH_SU, ClientGia(tra_ve=tra_loi)) == GOC
@@ -223,10 +181,6 @@ def test_ban_viet_lai_trung_cau_goc_khong_bi_bao_la_da_viet_lai():
     ket_qua = chuan_bi_truy_van(GOC, LICH_SU, client=client)
     assert ket_qua["da_viet_lai"] is False
 
-
-# ======================================================================
-# Ngữ cảnh đưa vào prompt
-# ======================================================================
 
 def test_chi_lay_vai_luot_gan_nhat_va_cat_ngan_cau_tra_loi(monkeypatch):
     """Hai chốt chặn chi phí/chất lượng của prompt viết lại, kiểm bằng cách soi đúng chuỗi
@@ -251,18 +205,12 @@ def test_chi_lay_vai_luot_gan_nhat_va_cat_ngan_cau_tra_loi(monkeypatch):
 
     assert "CÂU HỎI RẤT CŨ" not in client.prompt
     assert "Vi phạm pháp luật gồm những dấu hiệu nào?" in client.prompt
-    assert "A" * 21 not in client.prompt  # câu trả lời cũ đã bị cắt còn 20 ký tự
+    assert "A" * 21 not in client.prompt
 
-
-# ======================================================================
-# Ghép ngữ cảnh: chi tiết quyết định chất lượng truy vấn
-# ======================================================================
 
 def test_chi_ghep_CAU_HOI_truoc_khong_ghep_cau_tra_loi():
-    """Câu trả lời của lượt trước dài hơn câu hỏi hàng chục lần. Ghép nó vào thì vector truy
-    vấn bị chính nội dung câu trả lời cũ lấn át - và nội dung đó đã nằm sẵn trong tài liệu,
-    nên nhánh này sẽ chỉ kéo về đúng những đoạn vừa dùng ở lượt trước, không tìm được phần
-    MỚI mà người dùng đang hỏi."""
+    """Chỉ ghép câu hỏi trước, không ghép câu trả lời: câu trả lời dài hơn hàng chục lần sẽ lấn
+    át vector truy vấn và chỉ kéo về đúng những đoạn vừa dùng ở lượt trước."""
     ghep = truy_van_ngu_canh("Thế còn dấu hiệu thứ hai?", LICH_SU)
     assert "Vi phạm pháp luật gồm những dấu hiệu nào?" in ghep
     assert "hành vi trái pháp luật" not in ghep

@@ -1,33 +1,4 @@
-"""Đo ĐẦU-CUỐI: từ lúc đưa tài liệu vào tới lúc hỏi được, và từ lúc hỏi tới lúc có câu trả lời.
-
-VÌ SAO PHẢI ĐO ĐẦU-CUỐI CHỨ KHÔNG CỘNG CÁC PHẦN LẠI: mọi phép đo lẻ trong project này (đọc
-tài liệu, OCR, rerank, sinh câu trả lời) đều đo một bước với model đã nạp sẵn và cache đã ấm.
-Người dùng thì không sống trong điều kiện đó - họ trả cả tiền nạp model, tiền khởi tạo CUDA,
-tiền ghi index xuống đĩa, tiền chờ Ollama nạp LLM ở câu hỏi đầu tiên. Cộng các phần lẻ lại sẽ
-ra một con số nhỏ hơn thực tế, và tối ưu theo con số đó là tối ưu nhầm chỗ.
-
-HAI PHÉP ĐO, TÁCH RIÊNG VÌ CHÚNG NÓI VỀ HAI TRẢI NGHIỆM KHÁC NHAU:
-
-  A. INGESTION: đưa tài liệu vào -> index sẵn sàng. Đây là thứ người dùng chờ MỘT LẦN.
-     Đo cả hai kịch bản, vì chúng lệch nhau rất xa và cả hai đều có thật:
-       - cache RỖNG  : lần đầu nạp một corpus mới.
-       - cache ĐẦY   : bấm "Đọc tài liệu" lần nữa, hoặc thêm 1 file vào corpus đã có.
-
-  B. QUERY: gửi câu hỏi -> câu trả lời hoàn chỉnh. Đây là thứ người dùng chờ MỖI LẦN, nên nó
-     mới là con số quyết định cảm nhận. Tách riêng "câu hỏi đầu tiên" khỏi các câu sau: câu
-     đầu còn gánh thời gian Ollama nạp LLM vào VRAM, và trộn nó vào trung bình sẽ bôi một
-     chi phí một-lần lên mọi câu hỏi.
-
-CÁCH CHẠY:
-    python evaluation/do_dau_cuoi.py                       # cả hai phép đo
-    python evaluation/do_dau_cuoi.py --chi ingestion
-    python evaluation/do_dau_cuoi.py --chi query
-    python evaluation/do_dau_cuoi.py --thu-muc TaiLieuTest --so-file 5
-    python evaluation/do_dau_cuoi.py --khong-llm           # chỉ đo truy xuất, không gọi LLM
-
-LƯU Ý: script KHÔNG đụng tới `data/raw`, `data/faiss_index` hay `data/cache` của bạn - nó
-dựng index riêng trong thư mục tạm rồi xoá đi.
-"""
+"""Đo ĐẦU-CUỐI: từ lúc đưa tài liệu vào tới lúc hỏi được, và từ lúc hỏi tới lúc có câu trả lời."""
 
 import argparse
 import json
@@ -69,9 +40,6 @@ def _bang_profiling(tieu_de: str) -> None:
         print(f"    {ten:<32}{lan:>6} lần{giay:>9.2f}s{giay / lan * 1000:>10.0f} ms/lần")
 
 
-# ============================================================
-# A. INGESTION ĐẦU-CUỐI
-# ============================================================
 def do_ingestion(cac_file, thu_muc_lam_viec: Path, embedding_service):
     """Đo trọn luồng: đọc -> chunk -> embed -> ghi index, với cache rỗng rồi cache đầy."""
     from rag.chunking import chia_chunk
@@ -88,9 +56,6 @@ def do_ingestion(cac_file, thu_muc_lam_viec: Path, embedding_service):
     for nhan in ("cache rỗng", "cache đầy"):
         do_thoi_gian.dat_lai()
         moc = time.perf_counter()
-        # Vào giai đoạn INGESTION giống hệt app.py: đưa embedding lên GPU nếu máy có. Thiếu
-        # bước này thì phép đo chạy với embedding ở CPU (trạng thái mặc định của giai đoạn
-        # QUERY) và cho ra một con số không mô tả đúng thứ người dùng gặp.
         tai_nguyen_gpu.bat_dau_ingestion(embedding_service)
         cac_trang = doc_nhieu_file(cac_file)
         with do_thoi_gian.do("chunking"):
@@ -107,9 +72,6 @@ def do_ingestion(cac_file, thu_muc_lam_viec: Path, embedding_service):
             store = VectorStore(dimension=embedding_service.dimension)
             store.them(vectors, cac_chunk)
             store.luu(**duong_dan_index)
-        # Truyền embedding_service để phép đo đi ĐÚNG đường mà app.py đi: trên card chật,
-        # bước này còn đẩy embedding xuống CPU nhường VRAM cho reranker và LLM. Bỏ tham số
-        # thì phép đo query bên dưới chạy trong một điều kiện VRAM khác với thực tế.
         tai_nguyen_gpu.ket_thuc_ingestion(embedding_service=embedding_service)
         giay = time.perf_counter() - moc
 
@@ -119,9 +81,6 @@ def do_ingestion(cac_file, thu_muc_lam_viec: Path, embedding_service):
     return ket_qua, duong_dan_index
 
 
-# ============================================================
-# B. QUERY ĐẦU-CUỐI
-# ============================================================
 def do_query(pipeline, cac_cau_hoi, goi_llm: bool):
     """Đo từ lúc gửi câu hỏi tới lúc có câu trả lời hoàn chỉnh."""
     dong = []
@@ -165,7 +124,6 @@ def _in_tong_ket_query(dong, goi_llm: bool) -> None:
         cac_chu = [d["chu_dau_tien"] for d in sau_cau_dau if d["chu_dau_tien"]]
         print(f"  - tới chữ đầu    : {_tom_tat(cac_chu)}")
 
-    # Gộp chi tiết các bước truy xuất của những câu SAU câu đầu.
     gop = {}
     for d in sau_cau_dau:
         for ten, (lan, giay) in d["chi_tiet"].items():
@@ -177,7 +135,6 @@ def _in_tong_ket_query(dong, goi_llm: bool) -> None:
             print(f"    {ten:<32}{giay / len(sau_cau_dau):>8.3f}s")
 
 
-# ============================================================
 def main() -> None:
     bo = argparse.ArgumentParser(description=__doc__)
     bo.add_argument("--thu-muc", default="TaiLieuTest")
@@ -206,7 +163,6 @@ def main() -> None:
         sys.exit(f"Không có tài liệu nào trong '{thu_muc}'.")
     print(f"Corpus đo: {len(cac_file)} tài liệu từ '{thu_muc}'")
 
-    # Cache và index riêng cho phép đo - KHÔNG đụng dữ liệu thật của người dùng.
     with tempfile.TemporaryDirectory() as tam:
         tam = Path(tam)
         config.CACHE_DIR = tam / "cache"

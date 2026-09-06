@@ -1,10 +1,4 @@
-"""Test cho chú thích ảnh bằng model vision.
-
-Phần LOGIC (giảm cấp khi thiếu model, nuốt lỗi, nối mô tả vào chú thích sẵn có) được test
-bằng client giả - không cần Ollama chạy, không cần model, chạy trong mili giây. Phần gọi
-model THẬT tách riêng và tự bỏ qua nếu model chưa được pull, vì nó kiểm tra hành vi của
-model chứ không phải của code ta viết.
-"""
+"""Test cho chú thích ảnh bằng model vision."""
 
 import sys
 from pathlib import Path
@@ -71,10 +65,6 @@ def _ban_ghi_anh(chu_thich="[HÌNH] Hình 3: Sơ đồ bộ máy nhà nước"):
     }
 
 
-# ======================================================================
-# Nhận diện model có sẵn
-# ======================================================================
-
 def test_khop_ten_model_khong_can_dung_tag():
     """Ollama trả "qwen2.5vl:3b" nhưng người dùng hay cấu hình "qwen2.5vl" - bắt họ nhớ
     đúng tag chỉ tạo ra một cách hỏng vô nghĩa."""
@@ -92,10 +82,6 @@ def test_ollama_khong_chay_thi_coi_nhu_khong_co_model():
     """Không được để lỗi kết nối bung ra giữa lần build index."""
     assert not mo_hinh_vision_co_san(ClientGia(loi="list"))
 
-
-# ======================================================================
-# Giảm cấp thay vì hỏng
-# ======================================================================
 
 def test_thieu_model_thi_bo_qua_khong_lam_hong_build(caplog):
     """Bật nhầm tuỳ chọn không được phép làm sập cả lần build index - bản ghi ảnh phải
@@ -127,10 +113,6 @@ def test_tat_tuy_chon_thi_khong_goi_model():
     assert client.so_lan_goi == 0
 
 
-# ======================================================================
-# Nối mô tả vào chú thích sẵn có
-# ======================================================================
-
 def test_mo_ta_duoc_noi_them_chu_khong_thay_the_chu_thich():
     """Hai nguồn bổ khuyết nhau: chú thích cho biết tài liệu GỌI hình đó là gì (từ khoá
     người dùng sẽ hỏi), model vision cho biết BÊN TRONG hình có gì."""
@@ -138,8 +120,8 @@ def test_mo_ta_duoc_noi_them_chu_khong_thay_the_chu_thich():
     bo_sung_chu_thich_vision(cac_anh, client=ClientGia(noi_dung="Sơ đồ có 3 ô: A, B, C."))
 
     noi_dung = cac_anh[0]["noidung"]
-    assert "Hình 3: Sơ đồ bộ máy nhà nước" in noi_dung  # chú thích gốc còn nguyên
-    assert "Sơ đồ có 3 ô: A, B, C." in noi_dung          # mô tả mới được thêm
+    assert "Hình 3: Sơ đồ bộ máy nhà nước" in noi_dung
+    assert "Sơ đồ có 3 ô: A, B, C." in noi_dung
     assert cac_anh[0]["co_chu_thich_vision"] is True
 
 
@@ -154,10 +136,6 @@ def test_danh_sach_rong_khong_goi_model():
     assert bo_sung_chu_thich_vision([], client=client) == 0
     assert client.so_lan_goi == 0
 
-
-# ======================================================================
-# Model THẬT (tự bỏ qua nếu chưa pull)
-# ======================================================================
 
 @pytest.mark.slow
 def test_model_vision_that_doc_duoc_chu_trong_anh(tmp_path):
@@ -183,10 +161,6 @@ def test_model_vision_that_doc_duoc_chu_trong_anh(tmp_path):
     assert "QUOC HOI" in mo_ta or "CHINH PHU" in mo_ta, f"model không đọc được chữ: {mo_ta}"
 
 
-# ======================================================================
-# OCR dự phòng cho trang PDF đọc hỏng
-# ======================================================================
-
 def test_nhan_dien_trang_font_hong():
     """PDF nhúng font không kèm bảng ánh xạ ToUnicode (hay gặp ở font toán học) trả về mã
     (cid:NN) thay vì chữ. Đo trên giáo trình Bishop: 355/758 trang (47%) bị vậy."""
@@ -211,7 +185,6 @@ def test_vai_ma_cid_le_te_khong_kich_hoat_ocr():
 def test_nhan_dien_trang_scan():
     """Trang gần như không có chữ nhưng có ảnh -> nhiều khả năng là trang scan."""
     assert trang_can_ocr("Hình 3.1", so_anh_trong_trang=1)
-    # Không có ảnh thì là trang trống thật, OCR cũng không cứu được gì.
     assert not trang_can_ocr("Hình 3.1", so_anh_trong_trang=0)
 
 
@@ -220,9 +193,8 @@ def test_ocr_that_bai_tra_ve_rong_khong_lam_sap_build():
 
 
 def test_prompt_ocr_cam_dich():
-    """Bản đầu dùng prompt tiếng Việt, model liền DỊCH cả trang sách tiếng Anh sang tiếng
-    Việt và dịch sai bét ("LINEAR MODELS FOR REGRESSION" -> "LINHỆ MÔIẾN TRÊN REGRESSION"),
-    tức phá hỏng nội dung thay vì cứu nó."""
+    """Prompt OCR phải cấm dịch - prompt tiếng Việt khiến model dịch cả trang sách tiếng Anh và
+    dịch sai bét, tức phá hỏng nội dung thay vì cứu nó."""
     from rag.vision_caption import PROMPT_OCR_TRANG
 
     assert "do not translate" in PROMPT_OCR_TRANG.lower()

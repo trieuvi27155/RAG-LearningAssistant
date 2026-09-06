@@ -1,29 +1,4 @@
-"""Đo độ tin cậy của chính THƯỚC ĐO Faithfulness (LLM-as-judge), không phải của hệ thống RAG.
-
-VÌ SAO CÓ FILE NÀY
-------------------
-Faithfulness được chấm bởi một model 4B chạy cục bộ. Nó là một thước đo, và mọi thước đo
-đều có sai số - nhưng sai số của nó KHÔNG có triệu chứng: điểm 0.0 chấm cho một câu trả lời
-đúng trông y hệt điểm 0.0 chấm cho một câu bịa đặt. Đã xảy ra thật (§5.38): hai câu về sách
-Bishop bị chấm 0.0 dù cả hai đều đúng và có căn cứ, kéo cả nhóm xuống 0.33.
-
-Cái giá của việc không biết điều đó rất cụ thể: người làm đồ án nhìn số 0.33, kết luận "hệ
-thống hay bịa với sách tiếng Anh", rồi đi sửa prompt hoặc đổi model - tối ưu vào một lỗi
-không tồn tại, trong khi lỗi thật nằm ở khâu đọc PDF.
-
-Script này chạy giám khảo trên một bộ ca ĐÃ BIẾT TRƯỚC ĐÁP ÁN, do người viết dựng tay, rồi
-báo cáo: giám khảo chấm đúng bao nhiêu ca, sai lệch trung bình bao nhiêu, có ổn định giữa
-các lần chạy không, và quan trọng nhất - cờ tự nghi ngờ (metrics.faithfulness -> dang_ngo)
-có bắt được ca hỏng đã biết hay không.
-
-Con số rút ra từ đây là thứ nên đưa vào báo cáo bên cạnh Faithfulness: không phải "hệ thống
-đạt 0.90" mà "hệ thống đạt 0.90, đo bằng một thước đo đã kiểm định đúng X/Y ca".
-
-CÁCH CHẠY
----------
-    python evaluation/kiem_dinh_judge.py
-    python evaluation/kiem_dinh_judge.py --so-lan 3      # đo thêm độ ổn định giữa các lần
-"""
+"""Đo độ tin cậy của chính THƯỚC ĐO Faithfulness (LLM-as-judge), không phải của hệ thống RAG."""
 
 import argparse
 import sys
@@ -34,15 +9,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config
 from evaluation.metrics import faithfulness
 
-# Ngữ cảnh gốc, viết đúng chuẩn.
 _NGU_CANH_SACH = (
     "The bias-variance decomposition breaks down the expected squared loss into three "
     "terms: the squared bias, the variance, and the intrinsic noise of the data."
 )
-# CÙNG nội dung đó nhưng bị nuốt mất khoảng trắng - đúng thứ pdfplumber trả ra cho sách
-# LaTeX trước khi có cơ chế đọc lại thích ứng (§5.40). Giữ lại ở đây làm ca hồi quy: kể cả
-# khi khâu đọc tài liệu đã được sửa, thước đo vẫn phải chịu được ngữ cảnh chất lượng kém,
-# vì tài liệu người dùng nạp vào không phải lúc nào cũng sạch.
 _NGU_CANH_DINH_CHU = (
     "Thebias-variancedecompositionbreaksdowntheexpectedsquaredlossintothreeterms:"
     "thesquaredbias,thevariance,andtheintrinsicnoiseofthedata."
@@ -53,9 +23,6 @@ _NGU_CANH_LUAT = (
     "quyền quốc gia. Pháp luật ra đời cùng với nhà nước."
 )
 
-# Mỗi ca: (tên, câu trả lời, ngữ cảnh, khoảng điểm ĐÚNG mà giám khảo phải rơi vào).
-# Khoảng chứ không phải một con số: ranh giới giữa 0.7 và 0.8 là chuyện cảm tính, nhưng
-# ranh giới giữa "có căn cứ" và "bịa" thì không - và đó mới là thứ cần kiểm.
 CAC_CA_KIEM_DINH = [
     (
         "Bám sát ngữ cảnh sạch",
@@ -107,11 +74,7 @@ CAC_CA_KIEM_DINH = [
 
 
 def _chay_mot_ca(cau_tra_loi: str, ngu_canh: str) -> dict:
-    """Gọi đúng hàm faithfulness() mà run_evaluation.py dùng, không viết lại logic.
-
-    Quan trọng: phải đi qua chính hàm đó thì mới kiểm được cả cờ dang_ngo, chứ gọi thẳng
-    judge thì chỉ kiểm được nửa thước đo.
-    """
+    """Gọi đúng hàm faithfulness() mà run_evaluation.py dùng, không viết lại logic."""
     return faithfulness(cau_tra_loi, [{"noidung": ngu_canh}])
 
 
@@ -147,8 +110,6 @@ def main() -> None:
         dao_dong_lon_nhat = max(dao_dong_lon_nhat, dao_dong)
         dat = thap <= diem <= cao
         so_dung += dat
-        # Sai lệch tính tới MÉP GẦN NHẤT của khoảng đúng: điểm nằm trong khoảng thì sai
-        # lệch bằng 0, không phạt việc chấm 0.85 thay vì 1.0 khi cả hai đều đúng.
         tong_sai_lech += 0.0 if dat else min(abs(diem - thap), abs(diem - cao))
         co_ngo = any(cac_co)
 

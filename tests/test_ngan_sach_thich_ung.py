@@ -1,16 +1,4 @@
-"""Test cho ngân sách THÍCH ỨNG lúc truy vấn: rerank, num_predict, nén ngữ cảnh.
-
-Bối cảnh: bản trước cấp ngân sách TỐI ĐA cho mọi câu hỏi - 30 ứng viên cross-encoder, trần
-sinh 12000 token, cửa sổ ngữ cảnh tính theo mức dự phòng lớn nhất. Câu "Overfitting là gì?"
-không dùng hết phần nào trong số đó nhưng vẫn phải chờ nó.
-
-Ràng buộc quan trọng nhất mà bộ test này canh giữ nằm ở chiều NGƯỢC LẠI với tối ưu: khi ngữ
-cảnh vượt trần cửa sổ, hệ thống KHÔNG được hạ num_ctx. Hạ num_ctx không làm prompt ngắn đi,
-nó chỉ chuyển quyền quyết định cắt chỗ nào từ ta sang Ollama - mà Ollama luôn cắt từ ĐẦU
-phần ngữ cảnh, tức xoá đúng đoạn trích liên quan nhất. Đó là một bug đã xảy ra thật trong
-project này (xem config.OLLAMA_NUM_CTX) và tuyệt đối không được tái lập dưới danh nghĩa
-"tối ưu tốc độ".
-"""
+"""Test cho ngân sách THÍCH ỨNG lúc truy vấn: rerank, num_predict, nén ngữ cảnh."""
 
 import sys
 from pathlib import Path
@@ -28,10 +16,6 @@ from rag.rag_pipeline import (
     ngan_sach_token_ngu_canh,
 )
 
-
-# ======================================================================
-# 1. Nhận diện câu hỏi đơn giản / phức tạp
-# ======================================================================
 
 @pytest.mark.parametrize(
     "cau_hoi, phuc_tap",
@@ -67,10 +51,6 @@ def test_tat_thich_ung_thi_moi_cau_hoi_deu_duoc_ngan_sach_day_du(monkeypatch):
     assert la_cau_hoi_phuc_tap("Overfitting là gì?")
 
 
-# ======================================================================
-# 2. num_ctx: KHÔNG BAO GIỜ bị hạ để tiết kiệm
-# ======================================================================
-
 def test_num_ctx_khong_bao_gio_thap_hon_cau_hinh():
     for so_token in (10, 500, 5000, 50000):
         for num_predict in (100, 3000, 12000):
@@ -97,20 +77,8 @@ def test_num_predict_lon_hon_du_phong_thi_giu_nguyen_hanh_vi_cu():
         assert _tinh_num_ctx(so_token, config.OLLAMA_NUM_PREDICT) == _tinh_num_ctx(so_token)
 
 
-# ======================================================================
-# 2b. Trần token sinh: KHÔNG được hạ theo độ phức tạp câu hỏi
-# ======================================================================
-
 def test_moi_cau_hoi_deu_duoc_tron_ngan_sach_sinh():
-    """Hồi quy đã gây lỗi THẬT cho người dùng: câu trả lời đứt giữa chừng ở chữ "và".
-
-    Bản trước hạ num_predict xuống 3000 cho câu hỏi "đơn giản". Nhưng `num_predict` giới hạn
-    SUY LUẬN + CÂU TRẢ LỜI cộng lại, mà riêng chuỗi suy luận của qwen3 đã ngốn 2.000-4.000
-    token — nên 3000 gần như không chừa gì cho câu trả lời. Đo trên đúng câu hỏi gây lỗi:
-    num_predict=3000 cho ra 569 ký tự (đứt), num_predict=12000 cho ra 1012 ký tự (đủ).
-
-    Test này khoá lại: dù câu hỏi ngắn tới đâu, trần sinh vẫn phải là trần đầy đủ.
-    """
+    """Hồi quy đã gây lỗi THẬT cho người dùng: câu trả lời đứt giữa chừng ở chữ "và"."""
     import inspect
 
     from rag import rag_pipeline
@@ -125,19 +93,10 @@ def test_moi_cau_hoi_deu_duoc_tron_ngan_sach_sinh():
 
 
 def test_ngan_sach_sinh_luon_du_cho_ca_suy_luan_lan_cau_tra_loi():
-    """Trần sinh phải lớn hơn hẳn chuỗi suy luận dài nhất đã quan sát được (7.232 token).
-
-    Con số 7.232 không phải phòng xa: nó đo được trên một câu hỏi bình thường. Độ dài suy
-    luận KHÔNG tương quan với độ dài câu hỏi, nên trần phải phủ được ca xấu nhất chứ không
-    phải ca trung bình.
-    """
+    """Trần sinh phải lớn hơn hẳn chuỗi suy luận dài nhất đã quan sát được (7.232 token)."""
     SUY_LUAN_DAI_NHAT_DA_THAY = 7232
     assert config.OLLAMA_NUM_PREDICT > SUY_LUAN_DAI_NHAT_DA_THAY * 1.5
 
-
-# ======================================================================
-# 3. Nén ngữ cảnh
-# ======================================================================
 
 def _chunk(i: int, so_ky_tu: int) -> dict:
     return {
@@ -192,5 +151,4 @@ def test_ngan_sach_ngu_canh_tru_du_phan_co_dinh():
     tran = max(config.OLLAMA_NUM_CTX_TOI_DA, config.OLLAMA_NUM_CTX)
     ngan_sach = ngan_sach_token_ngu_canh(config.OLLAMA_NUM_PREDICT, 1000)
     assert ngan_sach == tran - config.OLLAMA_DU_PHONG_TOKEN_SINH - 1000
-    # Phần cố định lớn hơn -> ngân sách cho đoạn trích nhỏ đi tương ứng, không âm thầm bù trừ.
     assert ngan_sach_token_ngu_canh(config.OLLAMA_NUM_PREDICT, 5000) == ngan_sach - 4000

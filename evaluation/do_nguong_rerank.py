@@ -1,22 +1,4 @@
-"""Đo xem điểm reranker có tách được câu hỏi TRONG phạm vi tài liệu khỏi câu LẠC ĐỀ hay không.
-
-VÌ SAO CẦN ĐO RIÊNG:
-config.NGUONG_DIEM_TOI_THIEU (điểm cosine) đã được đo và kết luận là KHÔNG dùng để phát
-hiện câu lạc đề được - vì câu hỏi đúng chủ đề hỏi bằng tiếng Anh cho điểm cosine thấp hơn
-cả câu tiếng Việt lạc đề (tài liệu viết bằng tiếng Việt nên tương đồng xuyên ngôn ngữ luôn
-bị thiệt). Việc từ chối vì thế đang giao hoàn toàn cho LLM qua quy tắc trong system prompt.
-
-Cross-encoder (rerank) đọc CẢ CẶP (câu hỏi, đoạn) cùng lúc thay vì mã hoá 2 phía độc lập,
-nên về lý thuyết nó đánh giá được "đoạn này có trả lời được câu hỏi này không" thay vì chỉ
-"hai đoạn text này có giống nhau không". Câu hỏi: điều đó có đúng trên thực tế không, và
-có đủ tách bạch để dùng làm ngưỡng chặn không?
-
-KHÔNG ĐƯỢC GIẢ ĐỊNH LÀ CÓ. Script này tồn tại để đo, và kết quả âm tính (không tách được)
-cũng là một kết quả hợp lệ - khi đó giữ nguyên cách làm hiện tại và ghi nhận vào tài liệu,
-đúng như đã làm với ngưỡng cosine.
-
-Cách chạy:  python evaluation/do_nguong_rerank.py
-"""
+"""Đo xem điểm reranker có tách được câu hỏi TRONG phạm vi tài liệu khỏi câu LẠC ĐỀ hay không."""
 
 import statistics
 import sys
@@ -30,7 +12,6 @@ from rag.rag_pipeline import RagPipeline
 from rag.reranker import RerankerService
 from rag.vector_store import VectorStore
 
-# Câu hỏi ĐÚNG chủ đề tài liệu mẫu (thư viện số / quản lý thư viện), hỏi bằng tiếng Việt.
 TRONG_PHAM_VI_VI = [
     "Thư viện số đầu tiên được xây dựng vào năm nào?",
     "Quy trình mượn tài liệu gồm những bước nào?",
@@ -40,8 +21,6 @@ TRONG_PHAM_VI_VI = [
     "Kho tài liệu được sắp xếp theo nguyên tắc nào?",
 ]
 
-# Cũng đúng chủ đề, nhưng hỏi bằng TIẾNG ANH - đây chính là nhóm mà ngưỡng cosine đánh
-# trượt. Nếu reranker cũng đánh trượt nhóm này thì nó không dùng làm ngưỡng được.
 TRONG_PHAM_VI_EN = [
     "When was the first digital library built?",
     "What are the steps to borrow a document?",
@@ -49,7 +28,6 @@ TRONG_PHAM_VI_EN = [
     "How long is a library card valid?",
 ]
 
-# Hoàn toàn ngoài phạm vi tài liệu, hỏi bằng tiếng Việt.
 LAC_DE_VI = [
     "Công thức tính diện tích hình tròn là gì?",
     "Cách nấu phở bò ngon nhất?",
@@ -115,8 +93,6 @@ def chay_do():
     for nhan, _ in cac_nhom:
         _in_nhom(nhan, ket_qua[nhan])
 
-    # Kết luận tự động: có tồn tại ngưỡng nào vừa nhận HẾT câu đúng chủ đề (cả 2 ngôn ngữ)
-    # vừa loại HẾT câu lạc đề không? Đây đúng là điều kiện để dùng làm ngưỡng chặn.
     dung_chu_de = [
         r for nhan in ("Đúng chủ đề (tiếng Việt)", "Đúng chủ đề (tiếng Anh)")
         for _, r in ket_qua[nhan] if r is not None

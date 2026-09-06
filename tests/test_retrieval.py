@@ -1,7 +1,4 @@
-"""Test cơ bản cho retrieval (Embedding + FAISS) - chỉ 3-5 test theo đúng phạm vi đồ án.
-
-Lưu ý: các test này tải model embedding thật (không mock) nên lần chạy đầu sẽ hơi
-chậm hơn (phải tải model từ HuggingFace nếu máy chưa có sẵn trong cache)."""
+"""Test cơ bản cho retrieval (Embedding + FAISS) - chỉ 3-5 test theo đúng phạm vi đồ án."""
 
 import sys
 import tempfile
@@ -18,8 +15,6 @@ from rag.vector_store import VectorStore
 
 @pytest.fixture(scope="module")
 def embedding_service():
-    # scope="module": chỉ load model 1 lần cho toàn bộ file test này, vì load model
-    # tốn vài giây - không cần load lại cho từng test riêng lẻ.
     return EmbeddingService()
 
 
@@ -38,7 +33,7 @@ def test_tim_kiem_tra_ve_ket_qua_giong_nhat_nhieu_nhat(embedding_service):
     cau_hoi = "Ngôn ngữ lập trình nào được nhắc đến trong tài liệu?"
     ket_qua = store.tim_kiem(embedding_service.encode_cau_hoi([cau_hoi]), top_k=1)
 
-    assert ket_qua[0][0]["trang"] == 1  # chunk về Python phải là kết quả gần nhất
+    assert ket_qua[0][0]["trang"] == 1
 
 
 def test_diem_similarity_nam_trong_khoang_hop_le(embedding_service):
@@ -52,14 +47,13 @@ def test_diem_similarity_nam_trong_khoang_hop_le(embedding_service):
     ket_qua = store.tim_kiem(embedding_service.encode_tai_lieu(van_ban), top_k=1)
     diem = ket_qua[0][1]
 
-    assert -1.0001 <= diem <= 1.0001  # cosine similarity luôn nằm trong [-1, 1]
-    assert diem > 0.99  # vector giống hệt câu đã lưu -> similarity phải gần 1
+    assert -1.0001 <= diem <= 1.0001
+    assert diem > 0.99
 
 
 def test_cau_hoi_va_tai_lieu_duoc_ma_hoa_khac_nhau(embedding_service):
-    """Model họ E5 được huấn luyện bất đối xứng (tiền tố "query: " / "passage: "). Nếu 2
-    hàm này cho ra cùng một vector nghĩa là tiền tố không được áp dụng - lỗi âm thầm làm
-    tụt chất lượng truy xuất mà không có dấu hiệu nào lộ ra."""
+    """Model họ E5 huấn luyện bất đối xứng nên câu hỏi và tài liệu phải được mã hoá khác nhau;
+    giống nhau nghĩa là tiền tố query/passage không được áp dụng."""
     if not config.EMBEDDING_QUERY_PREFIX and not config.EMBEDDING_PASSAGE_PREFIX:
         pytest.skip("Model đang dùng không cần tiền tố bất đối xứng")
 
@@ -85,10 +79,6 @@ def test_chunk_khong_vuot_gioi_han_token_cua_model(embedding_service):
 
 
 def test_luu_va_tai_lai_index_giu_nguyen_ket_qua(embedding_service):
-    # Cố tình KHÔNG dùng fixture tmp_path mặc định của pytest: trên máy có tên hiển thị
-    # Windows (display name) chứa ký tự tiếng Việt có dấu, pytest tạo thư mục tạm dạng
-    # "pytest-of-<display-name>", và FAISS (dùng fopen theo ANSI codepage ở tầng C++)
-    # không ghi được vào đường dẫn đó. tempfile.gettempdir() trả về đường dẫn an toàn hơn.
     van_ban = ["Nội dung A về chủ đề X.", "Nội dung B về chủ đề Y."]
     metadata = [{"nguon": "x.pdf", "trang": i + 1, "noidung": t} for i, t in enumerate(van_ban)]
     vectors = embedding_service.encode_tai_lieu(van_ban)
@@ -108,7 +98,6 @@ def test_luu_va_tai_lai_index_giu_nguyen_ket_qua(embedding_service):
         store_tai_lai = VectorStore.tai(**duong_dan)
         assert store_tai_lai.so_luong_vector == store.so_luong_vector
         assert store_tai_lai.metadata == store.metadata
-        # Index vừa build bằng đúng cấu hình hiện tại -> không được báo không tương thích.
         assert store_tai_lai.ly_do_khong_tuong_thich() is None
 
 
@@ -134,7 +123,7 @@ def test_xoa_theo_nguon_lam_moi_chi_muc_phu(embedding_service):
     store = VectorStore(dimension=embedding_service.dimension)
     store.them(embedding_service.encode_tai_lieu(van_ban), metadata)
 
-    assert len(store.theo_nguon_va_trang("a.pdf", 1)) == 1  # ép dựng cache trước khi xoá
+    assert len(store.theo_nguon_va_trang("a.pdf", 1)) == 1
     assert store.bm25.so_tai_lieu == 2
 
     assert store.xoa_theo_nguon("a.pdf") == 1

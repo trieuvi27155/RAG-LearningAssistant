@@ -1,14 +1,4 @@
-"""Test cho lớp nhận biết phần cứng và quản lý VRAM theo giai đoạn.
-
-RÀNG BUỘC QUAN TRỌNG NHẤT mà bộ test này canh giữ: **mọi thứ phải chạy được trên máy KHÔNG
-có GPU**. Đó không phải trường hợp biên hiếm gặp mà là môi trường mặc định của người chấm đồ
-án, và của bất kỳ ai chạy thử trên laptop. Một hàm quản lý GPU ném lỗi trên máy không GPU sẽ
-làm sập cả luồng build index vì một tính năng lẽ ra chỉ là tối ưu.
-
-Vì vậy các test dưới đây ép `co_cuda()` trả False để chạy đúng nhánh "không có GPU", thay vì
-phụ thuộc vào việc máy chạy test có card hay không - nếu phụ thuộc thì trên máy có GPU nhánh
-đó sẽ KHÔNG BAO GIỜ được kiểm, tức lỗi chỉ lộ ra ở máy người khác.
-"""
+"""Test cho lớp nhận biết phần cứng và quản lý VRAM theo giai đoạn."""
 
 import sys
 from pathlib import Path
@@ -28,11 +18,7 @@ def khong_gpu(monkeypatch):
 
 @pytest.fixture
 def gia_lap_gpu(monkeypatch):
-    """Giả lập một GPU với lượng VRAM còn trống tuỳ ý, không cần card thật.
-
-    Trả về một hàm đặt số GB còn trống, để từng test mô tả đúng tình huống nó quan tâm
-    (card rộng rãi / card đang chật / card gần đầy).
-    """
+    """Giả lập một GPU với lượng VRAM còn trống tuỳ ý, không cần card thật."""
     monkeypatch.setattr(tai_nguyen_gpu, "co_cuda", lambda: True)
 
     def dat(con_trong_gb: float, tong_gb: float = 8.0):
@@ -43,10 +29,6 @@ def gia_lap_gpu(monkeypatch):
     dat(6.0)
     return dat
 
-
-# ======================================================================
-# 1. Chọn thiết bị
-# ======================================================================
 
 def test_khong_co_gpu_thi_moi_vai_tro_deu_chay_cpu(khong_gpu, monkeypatch):
     monkeypatch.setattr(config, "THIET_BI_EMBEDDING", "auto")
@@ -65,12 +47,7 @@ def test_card_lon_thi_auto_chon_cuda_cho_ca_hai(gia_lap_gpu, monkeypatch):
 
 
 def test_card_nho_thi_embedding_mac_dinh_o_cpu_con_rerank_van_gpu(gia_lap_gpu, monkeypatch):
-    """Trạng thái mặc định phải là trạng thái của giai đoạn HAY GẶP NHẤT, tức query.
-
-    Phiên làm việc điển hình không bắt đầu bằng "Đọc tài liệu" mà bằng việc mở app lên hỏi
-    ngay trên index đã có — lúc đó bước chuyển giai đoạn chưa hề chạy. Mặc định sai ở đây
-    khiến embedding tranh VRAM với LLM suốt cả phiên: đo được truy xuất 7,4s thay vì 0,35s.
-    """
+    """Trạng thái mặc định phải là trạng thái của giai đoạn HAY GẶP NHẤT, tức query."""
     monkeypatch.setattr(config, "THIET_BI_EMBEDDING", "auto")
     monkeypatch.setattr(config, "THIET_BI_RERANK", "auto")
     monkeypatch.setattr(config, "VRAM_DU_GIU_EMBEDDING_TREN_GPU_GB", 10.0)
@@ -95,10 +72,6 @@ def test_hai_vai_tro_tach_roi_nhau(gia_lap_gpu, monkeypatch):
     assert tai_nguyen_gpu.thiet_bi("embedding") != tai_nguyen_gpu.thiet_bi("rerank")
 
 
-# ======================================================================
-# 2. Batch size suy từ VRAM
-# ======================================================================
-
 def test_tren_cpu_thi_giu_nguyen_batch_cau_hinh(khong_gpu, monkeypatch):
     monkeypatch.setattr(config, "EMBEDDING_BATCH_SIZE", 64)
     assert tai_nguyen_gpu.kich_thuoc_lo_embedding() == 64
@@ -115,9 +88,9 @@ def test_vram_chat_thi_ha_batch_xuong(gia_lap_gpu, monkeypatch):
     monkeypatch.setattr(config, "THIET_BI_EMBEDDING", "auto")
     monkeypatch.setattr(config, "EMBEDDING_BATCH_SIZE", 64)
 
-    gia_lap_gpu(2.5)  # giữa hai ngưỡng
+    gia_lap_gpu(2.5)
     assert tai_nguyen_gpu.kich_thuoc_lo_embedding() == 32
-    gia_lap_gpu(0.6)  # gần đầy
+    gia_lap_gpu(0.6)
     assert tai_nguyen_gpu.kich_thuoc_lo_embedding() == 16
 
 
@@ -130,10 +103,6 @@ def test_batch_khong_bao_gio_vuot_tran_cau_hinh(gia_lap_gpu, monkeypatch):
         gia_lap_gpu(con_trong)
         assert tai_nguyen_gpu.kich_thuoc_lo_embedding() == 8
 
-
-# ======================================================================
-# 3. Số worker suy từ phần cứng
-# ======================================================================
 
 def test_so_worker_luon_it_nhat_mot(khong_gpu, monkeypatch):
     """Trả 0 worker sẽ làm ThreadPoolExecutor ném lỗi và giết cả lần build."""
@@ -167,17 +136,13 @@ def test_vram_it_thi_ha_so_worker(gia_lap_gpu, monkeypatch):
     assert tai_nguyen_gpu.so_worker_vision() == 1
 
 
-# ======================================================================
-# 4. Không có GPU thì mọi thứ phải là KHÔNG-LÀM-GÌ, không được ném lỗi
-# ======================================================================
-
 def test_cac_ham_gpu_khong_nem_loi_tren_may_khong_gpu(khong_gpu):
     assert tai_nguyen_gpu.vram() is None
     assert tai_nguyen_gpu.tong_vram_gb() == 0.0
     assert tai_nguyen_gpu.vram_con_trong_gb() == 0.0
-    tai_nguyen_gpu.don_bo_nho_cuda()   # không được ném
-    tai_nguyen_gpu.ghi_log_vram("thử")  # không được ném
-    tai_nguyen_gpu.ket_thuc_ingestion()  # không được ném
+    tai_nguyen_gpu.don_bo_nho_cuda()
+    tai_nguyen_gpu.ghi_log_vram("thử")
+    tai_nguyen_gpu.ket_thuc_ingestion()
 
 
 def test_mo_ta_phan_cung_noi_ro_khi_dang_chay_cpu(khong_gpu):
@@ -212,10 +177,6 @@ def test_tat_quan_ly_vram_thi_khong_nha_gi_ca(gia_lap_gpu, monkeypatch):
     tai_nguyen_gpu.ket_thuc_ingestion()
     assert da_goi == []
 
-
-# ======================================================================
-# 5. Chuyển embedding giữa GPU và CPU theo giai đoạn
-# ======================================================================
 
 class _EmbeddingGia:
     """Ghi lại các lần bị yêu cầu đổi thiết bị, để test kiểm được THỨ TỰ và SỐ LẦN."""

@@ -1,18 +1,4 @@
-"""Test cho đợt tối ưu luồng Ingestion: đọc một-lượt, cache theo content hash, lọc ảnh.
-
-Bối cảnh: luồng build cũ quét cùng một tài liệu nhiều lần. Mỗi trang PDF có thể bị đọc tới
-5 lần (dò x_tolerance), mỗi bảng bị trích 2 lần, và toàn bộ PDF được duyệt thêm một lượt nữa
-chỉ để trích ảnh. Trên giáo trình Bishop 758 trang, đó là gần một phút cho MỘT tài liệu, lặp
-lại đầy đủ mỗi lần bấm "Đọc tài liệu" - kể cả khi người dùng chỉ vừa thêm một file khác.
-
-Các test dưới đây khoá lại từng cơ chế đã sửa, và quan trọng hơn: khoá lại RANH GIỚI của
-chúng - chỗ mà tối ưu KHÔNG được phép đổi kết quả. Một tối ưu ingestion làm nội dung index
-xấu đi là một tối ưu đã thất bại, dù nó nhanh tới đâu.
-
-Không gọi model thật ở đâu cả: OCR và vision đều thay bằng hàm giả, vì thứ cần kiểm là luồng
-quyết định (đọc lại mấy lần, cache trúng hay trượt, ảnh nào bị loại), không phải chất lượng
-model.
-"""
+"""Test cho đợt tối ưu luồng Ingestion: đọc một-lượt, cache theo content hash, lọc ảnh."""
 
 import sys
 import tempfile
@@ -53,11 +39,7 @@ def cache_tam(tmp_path, monkeypatch):
 
 
 class TrangGia:
-    """Trang PDF giả: trả text khác nhau tuỳ x_tolerance, và ĐẾM số lần bị đọc.
-
-    Bộ đếm mới là thứ đang được kiểm: số lần extract_text() bị gọi chính là chi phí đọc lại
-    mà đợt tối ưu này nhắm vào.
-    """
+    """Trang PDF giả: trả text khác nhau tuỳ x_tolerance, và ĐẾM số lần bị đọc."""
 
     def __init__(self, theo_tolerance: dict, mac_dinh: str):
         self.theo_tolerance = theo_tolerance
@@ -69,30 +51,16 @@ class TrangGia:
         return self.theo_tolerance.get(x_tolerance, self.mac_dinh)
 
 
-# Một câu dài viết liền, đủ để _ty_le_dinh_chu() vượt ngưỡng đọc lại (cụm >= 25 ký tự).
 _DINH = " ".join(["thequickbrownfoxjumpsoverthelazydogagainandagain"] * 6)
-# Cùng nội dung nhưng đã tách từ - độ dính về 0.
 _SACH = " ".join(["the quick brown fox jumps over the lazy dog again and again"] * 6)
-# Bản "đỡ dính": một nửa số cụm đã tách, nửa còn lại vẫn liền -> dính khoảng 50%, tức đã
-# GIẢM so với bản gốc nhưng CHƯA sạch.
 _DO_DINH = " ".join(
     ["the quick brown fox jumps over the lazy dog again and again",
      "thequickbrownfoxjumpsoverthelazydogagainandagain"] * 3
 )
 
 
-# ======================================================================
-# 1. Dò x_tolerance: dừng sớm nhưng KHÔNG được dừng khi chữ còn dính
-# ======================================================================
-
 def test_dung_som_chi_khi_text_da_that_su_sach():
-    """Hồi quy đã gặp thật trên PaperQA.pdf.
-
-    Bản đầu của phép dừng sớm dùng chung ngưỡng với TY_LE_DINH_CHU_DE_DOC_LAI (0.10), nên nó
-    chấp nhận ngay mức x_tolerance đầu tiên đưa độ dính xuống dưới 10% - bỏ qua mức tốt hơn
-    nằm ngay sau đó. Kết quả là những dòng như "RAGmodelsretrievetextfromacorpus" đi thẳng
-    vào index. Test này khoá lại: chỉ được dừng khi đã SẠCH.
-    """
+    """Hồi quy đã gặp thật trên PaperQA.pdf."""
     trang = TrangGia({2.0: _DO_DINH, 1.5: _SACH}, _DINH)
     ket_qua = _trich_text_thich_ung(trang, "thu.pdf", 1)
     assert ket_qua == _SACH, "phải đọc tiếp tới mức làm sạch được, không dừng ở mức 'đỡ dính'"
@@ -102,7 +70,6 @@ def test_dung_ngay_khi_muc_dau_tien_da_sach():
     """Đã sạch thì thử tiếp chỉ tốn thêm lượt đọc trang mà không cứu thêm chữ nào."""
     trang = TrangGia({2.0: _SACH}, _DINH)
     assert _trich_text_thich_ung(trang, "thu.pdf", 1) == _SACH
-    # 1 lượt đọc gốc + 1 lượt với x_tolerance=2.0, rồi dừng. Bản cũ đọc 1 + 4 = 5 lượt.
     assert trang.so_lan_doc == 2
 
 
@@ -111,10 +78,6 @@ def test_khong_muc_nao_dat_thi_giu_nguyen_ban_goc():
     trang = TrangGia({}, _DINH)
     assert _trich_text_thich_ung(trang, "thu.pdf", 1) == _DINH
 
-
-# ======================================================================
-# 2. Hiệu chỉnh x_tolerance theo TÀI LIỆU
-# ======================================================================
 
 def test_hieu_chinh_thu_muc_da_dung_duoc_truoc_tien():
     hieu_chinh = HieuChinhXTolerance()
@@ -135,8 +98,6 @@ def test_hieu_chinh_chi_duoc_coi_la_on_dinh_sau_du_so_trang():
     hieu_chinh.ghi_nhan(1.0)
     assert hieu_chinh.da_hieu_chinh
 
-    # Một trang cần mức KHÁC -> bộ đếm phải reset, không được coi là đã ổn định nữa. Đây là
-    # chốt cho tài liệu trộn nhiều font (phụ lục scan, chương chèn từ nguồn khác).
     hieu_chinh.ghi_nhan(0.7)
     assert not hieu_chinh.da_hieu_chinh
 
@@ -161,14 +122,9 @@ def test_hieu_chinh_van_do_lai_khi_muc_da_nho_khong_dung_duoc():
     """Giá trị đã nhớ chỉ được thử TRƯỚC, không được tin tưởng vô điều kiện."""
     hieu_chinh = HieuChinhXTolerance()
     hieu_chinh.ghi_nhan(config.CAC_X_TOLERANCE_THU[0])
-    # Mức đã nhớ (phần tử đầu) không cứu được trang này; mức cuối mới cứu được.
     trang = TrangGia({config.CAC_X_TOLERANCE_THU[-1]: _SACH}, _DINH)
     assert _trich_text_thich_ung(trang, "sach.pdf", 9, hieu_chinh) == _SACH
 
-
-# ======================================================================
-# 3. Cache tài liệu theo content hash
-# ======================================================================
 
 def _tai_lieu_gia(monkeypatch, ban_ghi, bo_dem):
     """Thay hàm đọc thật bằng hàm giả có đếm số lần được gọi."""
@@ -221,11 +177,7 @@ def test_cache_truot_khi_doi_cau_hinh_doc_tai_lieu(cache_tam, monkeypatch):
 
 
 def test_cache_truot_khi_file_anh_da_bi_xoa(cache_tam, monkeypatch):
-    """Nội dung nằm trong cache nhưng ảnh nằm ở data/images - hai chỗ có thể lệch nhau.
-
-    Trả về bản ghi trỏ vào ảnh không còn tồn tại sẽ hỏng đúng ở chỗ người dùng nhìn thấy:
-    trích dẫn có hình nhưng hình không mở được.
-    """
+    """Nội dung nằm trong cache nhưng ảnh nằm ở data/images - hai chỗ có thể lệch nhau."""
     f = cache_tam / "bai.pdf"
     f.write_bytes(b"%PDF-1.4 noi dung")
     anh = cache_tam / "hinh1.png"
@@ -260,12 +212,8 @@ def test_tat_cache_thi_luon_doc_lai(cache_tam, monkeypatch):
     assert len(bo_dem) == 2
 
 
-# ======================================================================
-# 4. Lọc ảnh trước khi render / gọi model vision
-# ======================================================================
-
-_DIEN_TICH_TRANG = 595.0 * 841.0        # A4
-_DIEN_TICH_TRANG_LON = 1920.0 * 1080.0  # trang khổ lớn / poster
+_DIEN_TICH_TRANG = 595.0 * 841.0
+_DIEN_TICH_TRANG_LON = 1920.0 * 1080.0
 
 
 @pytest.mark.parametrize(
@@ -284,13 +232,7 @@ def test_loc_anh_theo_hinh_dang(mo_ta, rong, cao, bi_loai):
 
 
 def test_tran_dien_tich_chi_can_thiep_o_trang_kho_lon():
-    """Chốt diện tích là lưới an toàn cho TRANG LỚN, không phải chốt chính trên A4.
-
-    Trên khổ A4, KICH_THUOC_ANH_TOI_THIEU (120 điểm) đã tương đương ~2,9% diện tích trang -
-    tức mọi ảnh lọt qua chốt kích thước đều tự khắc vượt ngưỡng diện tích. Chốt diện tích chỉ
-    thật sự cắn ở trang khổ lớn, nơi 120 điểm chỉ còn là một chấm nhỏ. Ghi lại quan hệ này
-    thành test để không ai chỉnh một trong hai con số mà tưởng cái kia vẫn còn tác dụng.
-    """
+    """Chốt diện tích là lưới an toàn cho TRANG LỚN, không phải chốt chính trên A4."""
     assert ly_do_loai_anh(140.0, 140.0, _DIEN_TICH_TRANG) is None
     assert ly_do_loai_anh(140.0, 140.0, _DIEN_TICH_TRANG_LON) is not None
 
@@ -333,10 +275,6 @@ def test_giu_hinh_that_duoc_nhac_lai_vai_trang(tmp_path):
     ]
     assert loc_anh_lap_lai(cac_ban_ghi, "bai.pdf") == cac_ban_ghi
 
-
-# ======================================================================
-# 5. Chú thích ảnh: gộp ảnh trùng + cache + không gọi lại model
-# ======================================================================
 
 class ClientVisionGia:
     def __init__(self, noi_dung="Sơ đồ gồm 3 ô A, B, C."):
@@ -402,10 +340,6 @@ def test_chu_thich_song_song_van_gan_dung_mo_ta_cho_dung_anh(cache_tam, tmp_path
         assert f"mo ta cua a{i}" in anh["noidung"]
 
 
-# ======================================================================
-# 6. Cache embedding
-# ======================================================================
-
 class EmbeddingGia:
     dimension = 4
 
@@ -424,7 +358,7 @@ def test_cache_embedding_chi_encode_chunk_moi(cache_tam):
     v1 = encode_co_cache(dich_vu, ["alpha", "beta"], kho)
     assert len(dich_vu.da_encode) == 2
 
-    kho_moi = KhoVectorDem()  # nạp lại từ đĩa, như một lần build sau
+    kho_moi = KhoVectorDem()
     v2 = encode_co_cache(dich_vu, ["alpha", "beta", "gamma"], kho_moi)
 
     assert dich_vu.da_encode[2:] == ["gamma"], "chỉ chunk mới được encode lại"
@@ -441,19 +375,9 @@ def test_cache_embedding_giu_dung_thu_tu_dau_vao(cache_tam):
     assert [v[0] for v in ket_qua] == [6.0, 3.0, 5.0]
 
 
-# ======================================================================
-# 7. Sổ băm tài liệu trong index - nền tảng của build tăng dần
-# ======================================================================
-
 @contextmanager
 def _thu_muc_faiss_ghi_duoc():
-    """Thư mục tạm mà FAISS ghi được.
-
-    Cố tình KHÔNG dùng fixture tmp_path của pytest: trên máy có display name Windows chứa
-    ký tự tiếng Việt có dấu, pytest tạo thư mục "pytest-of-<display-name>", và FAISS (dùng
-    fopen theo ANSI codepage ở tầng C++) không ghi được vào đường dẫn đó. Cùng lý do đã ghi
-    ở tests/test_retrieval.py.
-    """
+    """Thư mục tạm mà FAISS ghi được."""
     with tempfile.TemporaryDirectory() as thu_muc:
         yield Path(thu_muc)
 
@@ -525,10 +449,6 @@ def test_index_build_bang_ban_cu_khong_co_so_bam_thi_lui_ve_doc_lai_tat_ca():
     assert nap_lai.so_luong_vector == 3, "dữ liệu cũ vẫn còn nguyên, chỉ mất thông tin phụ"
 
 
-# ======================================================================
-# 8. Quyết định của build tăng dần: file nào đọc lại, file nào gỡ ra
-# ======================================================================
-
 @pytest.mark.parametrize(
     "mo_ta, trong_index, tren_dia, can_doc, can_xoa, giu_nguyen",
     [
@@ -568,7 +488,7 @@ def test_cache_embedding_khong_sap_khi_khong_ghi_duoc_xuong_dia(cache_tam, monke
     dich_vu = EmbeddingGia()
     kho = KhoVectorDem()
     monkeypatch.setattr(
-        kho, "luu", lambda: None  # giả lập ghi đĩa thất bại: sổ khoá đã cập nhật, file thì chưa
+        kho, "luu", lambda: None
     )
 
     v1 = encode_co_cache(dich_vu, ["alpha", "beta"], kho)

@@ -1,30 +1,4 @@
-"""Đo độ tin cậy của chính CƠ CHẾ PHÁT HIỆN MÂU THUẪN, không phải của hệ thống RAG.
-
-VÌ SAO CÓ FILE NÀY
-------------------
-Cảnh báo "hai nguồn của bạn nói khác nhau" là loại thông tin người dùng KHÔNG có cách nào
-tự kiểm rẻ: họ mở từng file ra thì mỗi file đều nhất quán với chính nó. Nếu cảnh báo đó sai,
-người dùng mất niềm tin vào chính tài liệu học tập của mình - và họ sẽ không biết là mình
-vừa bị báo nhầm.
-
-Đây đúng là dạng lỗi âm thầm mà cả đồ án tìm cách loại bỏ, nên cơ chế này phải tự khai báo
-độ tin cậy của nó, giống hệt cách kiem_dinh_judge.py làm với Faithfulness (§5.43).
-
-Bộ ca dưới đây cố ý gồm CẢ ca phải im lặng - và đó mới là phần khó. Bắt được mâu thuẫn hiển
-nhiên thì dễ; khó là KHÔNG báo động trên hai đoạn chỉ bổ sung cho nhau, hoặc cùng một ý diễn
-đạt bằng từ khác. Ba trên bảy ca ở đây là ca im lặng, và một trong số đó (bổ sung, khác số)
-được dựng riêng để qua được tầng lọc tất định rồi bị tầng LLM bác - tức nó kiểm đúng phần
-mà tầng lọc rẻ không làm được.
-
-Con số rút ra từ đây là thứ nên đưa vào báo cáo bên cạnh tính năng: không phải "hệ thống
-phát hiện được mâu thuẫn giữa các nguồn" mà "phát hiện được, với X/7 ca đúng trên bộ kiểm
-định, trong đó Y/3 ca im lặng đúng".
-
-CÁCH CHẠY
----------
-    python evaluation/kiem_dinh_doi_chieu.py
-    python evaluation/kiem_dinh_doi_chieu.py --so-lan 3   # đo thêm độ ổn định giữa các lần
-"""
+"""Đo độ tin cậy của chính CƠ CHẾ PHÁT HIỆN MÂU THUẪN, không phải của hệ thống RAG."""
 
 import argparse
 import sys
@@ -41,7 +15,6 @@ def _doan(nguon, trang, noidung):
             "diem_similarity": 0.9}
 
 
-# Mỗi ca: (tên, đoạn A, đoạn B, CÓ PHẢI mâu thuẫn thật không).
 CAC_CA_KIEM_DINH = [
     (
         "MÂU THUẪN — khác số lượng (số viết bằng chữ)",
@@ -123,9 +96,6 @@ def main() -> None:
     khong_on_dinh = []
 
     for ten, a, b, la_mau_thuan_that in CAC_CA_KIEM_DINH:
-        # Tầng 1 (tất định) đo riêng: một ca mâu thuẫn thật mà tầng 1 đã loại thì tầng LLM
-        # không bao giờ được nhìn thấy nó. Đây là chỗ hay hỏng âm thầm nhất của thiết kế hai
-        # tầng, nên phải nhìn thấy được trong bảng chứ không trộn vào kết quả cuối.
         qua_tang_1 = bool(cac_cap_dang_ngo([a, b], None))
 
         cac_lan = []

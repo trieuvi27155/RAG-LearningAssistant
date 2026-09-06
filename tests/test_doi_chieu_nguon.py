@@ -1,15 +1,4 @@
-"""Test cho việc phát hiện MÂU THUẪN giữa các nguồn.
-
-Trọng tâm là ba tính chất mà thiết kế dựa vào, chứ không phải chất lượng phán đoán của model
-(thứ đó đo bằng evaluation/kiem_dinh_doi_chieu.py trên bộ ca đã biết trước đáp án):
-
-1. CHI PHÍ CÓ TRẦN. Tầng lọc tất định phải cắt được số cặp; nếu nó để lọt, mỗi câu trả lời
-   sẽ gánh thêm hàng chục lượt gọi LLM. Test đếm thẳng số lần model bị gọi.
-2. NGHIÊNG VỀ PHÍA IM LẶNG. Mọi đường không chắc chắn - model bất đồng giữa các lần chấm,
-   model hỏng, điểm ngoài thang - đều phải cho ra danh sách RỖNG, không phải một cảnh báo.
-3. KHÔNG BAO GIỜ NÉM LỖI. Đây là một lớp thông tin thêm, chạy sau khi câu trả lời đã sinh
-   xong; nó hỏng thì người dùng vẫn phải nhận được câu trả lời.
-"""
+"""Test cho việc phát hiện MÂU THUẪN giữa các nguồn."""
 
 import sys
 from pathlib import Path
@@ -46,9 +35,7 @@ class ClientGia:
         return {"message": {"content": json.dumps(phan_hoi)}}
 
 
-# Thứ tự key ở đây theo đúng _SCHEMA_MAU_THUAN: phân tích TRƯỚC, phán quyết SAU. Không phải
-# chi tiết trang trí - đó là cách sửa cho đúng lỗi §5.56 (model bị ép chốt phán quyết trước
-# khi viết được chữ lập luận nào), và fixture phải phản ánh đúng hình dạng thật.
+# Thứ tự key theo đúng _SCHEMA_MAU_THUAN: phân tích TRƯỚC, phán quyết SAU.
 def _co(muc_do=0.9, mo_ta="Một bên nói năm, bên kia nói bốn"):
     return {"phan_tich": mo_ta, "muc_do": muc_do, "co_mau_thuan": True}
 
@@ -62,11 +49,9 @@ def _doan(nguon, trang, noidung):
             "diem_similarity": 0.9}
 
 
-# Hai đoạn nói ngược nhau về CÙNG một chuyện - ca chính mà tính năng này sinh ra để bắt.
 DOAN_NAM = _doan("giaotrinh.pdf", 12, "Nhà nước có năm đặc điểm cơ bản.")
 DOAN_BON = _doan("slide.pptx", 3, "Nhà nước có bốn đặc điểm cơ bản.")
 
-# Ma trận vector cho 2 đoạn giống chủ đề (cosine ~0.99).
 VECTOR_GIONG = np.array([[1.0, 0.0], [0.99, 0.141]], dtype="float32")
 
 
@@ -79,10 +64,6 @@ def cau_hinh_on_dinh(monkeypatch):
     monkeypatch.setattr(config, "NGUONG_MAU_THUAN", 0.6)
     monkeypatch.setattr(config, "NGUONG_COSINE_DOI_CHIEU", 0.88)
 
-
-# ======================================================================
-# Tầng 1: lọc tất định
-# ======================================================================
 
 def test_chuan_hoa_so_de_khong_bao_dong_gia():
     """Cùng một con số hay được viết khác nhau giữa hai tài liệu. Không chuẩn hoá thì mọi
@@ -138,17 +119,11 @@ def test_tran_so_cap_chan_bung_no_chi_phi(monkeypatch):
     assert len(cac_cap_dang_ngo(cac_doan, vector)) == 2
 
 
-# ======================================================================
-# Tầng 2 + hợp nhất: nghiêng về phía im lặng
-# ======================================================================
-
 def test_phat_hien_duoc_mau_thuan_that():
     client = ClientGia([_co(0.9), _co(0.85)])
     ket_qua = tim_mau_thuan([DOAN_NAM, DOAN_BON], embedding_service=None, client=client)
     assert len(ket_qua) == 1
     assert {ket_qua[0]["nguon_a"], ket_qua[0]["nguon_b"]} == {"giaotrinh.pdf", "slide.pptx"}
-    # Lấy mức độ THẤP NHẤT giữa các lần chấm, không lấy trung bình: khi các lần không thống
-    # nhất thì phải nghiêng về phía dè dặt hơn.
     assert ket_qua[0]["muc_do"] == 0.85
 
 
@@ -206,10 +181,6 @@ def test_tat_cau_hinh_thi_khong_chay_gi(monkeypatch):
     assert client.so_lan_goi == 0
 
 
-# ======================================================================
-# Không bao giờ ném lỗi ra ngoài
-# ======================================================================
-
 def test_ollama_chet_khong_lam_hong_luot_hoi():
     client = ClientGia(loi=ConnectionError("chưa bật Ollama"))
     assert tim_mau_thuan([DOAN_NAM, DOAN_BON], embedding_service=None, client=client) == []
@@ -258,11 +229,7 @@ def test_mot_khong_duoc_tinh_la_so():
 
 
 def test_giai_thich_lay_tu_phan_tich_cua_model():
-    """Chuỗi hiện cho người dùng phải là LẬP LUẬN của model, không phải một nhãn chung chung.
-
-    Khoá lại luôn tên field: schema đặt `phan_tich` TRƯỚC `co_mau_thuan` để model viết lập
-    luận rồi mới chốt phán quyết (§5.56 / §5.59). Đổi tên field mà quên chỗ đọc thì cảnh báo
-    hiện ra vẫn đúng/sai bình thường, chỉ có phần giải thích lặng lẽ rỗng."""
+    """Chuỗi hiện cho người dùng phải là LẬP LUẬN của model, không phải một nhãn chung chung."""
     client = ClientGia([_co(0.9, "Đoạn A nói năm, đoạn B nói bốn."),
                         _co(0.9, "Đoạn A nói năm, đoạn B nói bốn.")])
     ket_qua = tim_mau_thuan([DOAN_NAM, DOAN_BON], embedding_service=None, client=client)

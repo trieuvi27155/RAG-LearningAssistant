@@ -1,12 +1,4 @@
-"""Test cho phần THƯỚC ĐO tự kiểm tra chính nó, và cho việc chunk bảng lớn.
-
-Cả hai đều bắt nguồn từ cùng một loại lỗi: hệ thống chạy đúng, không có exception nào, mà
-số liệu/nội dung vẫn sai âm thầm. Đó là loại lỗi chỉ chốt được bằng test, vì mắt thường
-nhìn kết quả không phân biệt được.
-
-Không gọi Ollama ở đây: phần cần kiểm (phép đo bám ngữ cảnh, cách cắt bảng, việc bỏ qua
-câu trích dẫn phủ định) đều là logic tất định.
-"""
+"""Test cho phần THƯỚC ĐO tự kiểm tra chính nó, và cho việc chunk bảng lớn."""
 
 import sys
 from pathlib import Path
@@ -19,13 +11,6 @@ from rag.citation import cau_theo_trich_dan
 from rag.document_loader import MOC_BANG_DONG, MOC_BANG_MO, _ty_le_dinh_chu
 
 
-# ======================================================================
-# Phát hiện ngữ cảnh bị dính chữ (nguyên nhân gốc của Faithfulness 0.33)
-# ======================================================================
-
-# Phép đo dính chữ được thiết kế để chạy trên cỡ một TRANG (xem
-# config.SO_KY_TU_TOI_THIEU_DE_DO): với mẫu quá nhỏ, một từ dài hợp lệ đã chiếm tỉ lệ lớn
-# nên kết luận không có nghĩa. Vì vậy các mẫu dưới đây được nhân lên cỡ trang thật.
 _SO_LAN_LAP_CHO_CO_TRANG = 40
 
 
@@ -49,10 +34,6 @@ def test_cong_thuc_toan_khong_bi_bao_dong_gia():
     assert _ty_le_dinh_chu(cong_thuc * _SO_LAN_LAP_CHO_CO_TRANG) < 0.05
 
 
-# ======================================================================
-# Bám ngữ cảnh: cái chốt an toàn cho LLM-as-judge
-# ======================================================================
-
 _NGU_CANH_DINH = (
     "Thebias-variancedecompositionbreaksdowntheexpectedsquaredlossinto"
     "thesquaredbiasandthevariance."
@@ -75,15 +56,14 @@ def test_cau_tra_loi_bia_thi_khong_bam_ngu_canh():
 
 def test_dung_mot_nua_bi_muc_thap_nhat_keo_ve_khong():
     """Phải dùng mức của CÂU TỆ NHẤT chứ không phải trung bình: câu trả lời nửa đúng nửa
-    bịa vẫn cho trung bình khá cao, đủ để bật cờ nghi ngờ OAN cho giám khảo đang chấm đúng.
-    """
+    bịa vẫn cho trung bình khá cao, đủ để bật cờ nghi ngờ OAN cho giám khảo đang chấm đúng."""
     ngu_canh = "Nhà nước có ba đặc điểm: tính giai cấp, quyền lực công cộng và chủ quyền."
     nua_bia = (
         "Nhà nước có ba đặc điểm: tính giai cấp, quyền lực công cộng và chủ quyền [1]. "
         "Nhà nước Việt Nam được thành lập vào năm 1945 sau Cách mạng Tháng Tám [1]."
     )
-    assert do_bam_ngu_canh(nua_bia, ngu_canh) > 0.3          # trung bình vẫn cao
-    assert do_bam_ngu_canh_thap_nhat(nua_bia, ngu_canh) == 0.0  # câu tệ nhất lộ ra ngay
+    assert do_bam_ngu_canh(nua_bia, ngu_canh) > 0.3
+    assert do_bam_ngu_canh_thap_nhat(nua_bia, ngu_canh) == 0.0
 
 
 def test_cau_noi_ngan_khong_keo_muc_thap_nhat_xuong():
@@ -96,10 +76,6 @@ def test_cau_noi_ngan_khong_keo_muc_thap_nhat_xuong():
     )
     assert do_bam_ngu_canh_thap_nhat(co_cau_noi, ngu_canh) > 0.5
 
-
-# ======================================================================
-# Cắt bảng lớn: giữ lại dòng tiêu đề cột
-# ======================================================================
 
 def _bang_markdown(so_hang: int) -> str:
     dong = ["| Họ và tên | Mã số sinh viên | Nội dung được giao |", "| --- | --- | --- |"]
@@ -152,14 +128,9 @@ def test_chia_chunk_gan_nhan_dung_cho_bang_va_cho_van_xuoi_trong_o():
     assert "bang" in cac_loai and "van_ban" in cac_loai
 
 
-# ======================================================================
-# Câu phủ định nguồn không được tính là một trích dẫn cần kiểm
-# ======================================================================
-
 def test_cau_noi_doan_trich_khong_lien_quan_khong_bi_tinh_la_trich_dan():
     """Hỏi "đoạn [3] có chứng minh điều này không" cho một câu đang nói "[3] KHÔNG chứa gì
-    cả" là đặt sai câu hỏi - giám khảo tất nhiên chấm 0 và kéo Citation accuracy xuống oan.
-    """
+    cả" là đặt sai câu hỏi - giám khảo tất nhiên chấm 0 và kéo Citation accuracy xuống oan."""
     cau_tra_loi = (
         "Đề tài thuộc lĩnh vực Khoa học máy tính theo [1]. "
         "Các phần còn lại [3], [4] không liên quan đến đề tài đang xét."
@@ -175,10 +146,6 @@ def test_cau_khang_dinh_binh_thuong_van_duoc_tinh():
     assert set(cau_theo_trich_dan(cau_tra_loi)) == {2}
 
 
-# ======================================================================
-# Không dẫn nguồn: câu từ chối khác hẳn câu trả lời thật
-# ======================================================================
-
 def test_cau_tu_choi_khong_dan_nguon_thi_bi_loai_khoi_trung_binh():
     """Câu từ chối KHÔNG được kèm nguồn - vừa nói "không có thông tin" vừa chỉ vào một trang
     cụ thể là tự mâu thuẫn. Nên đây không phải lỗi, phải loại khỏi trung bình."""
@@ -192,12 +159,7 @@ def test_cau_tu_choi_khong_dan_nguon_thi_bi_loai_khoi_trung_binh():
 
 
 def test_cau_tra_loi_that_ma_khong_dan_nguon_phai_bi_tinh_0():
-    """Đây là lỗi trích dẫn NẶNG NHẤT: người đọc không có cách nào kiểm chứng điều vừa đọc.
-
-    Gộp nó chung với câu từ chối (cùng trả None) đã che mất một lỗi thật: một lần sửa system
-    prompt khiến model bỏ hẳn trích dẫn ở 3 câu, nhưng cả 3 đều rơi vào diện bị loại khỏi
-    trung bình nên điểm Citation gần như không đổi - lỗi đi lọt qua thước đo.
-    """
+    """Đây là lỗi trích dẫn NẶNG NHẤT: người đọc không có cách nào kiểm chứng điều vừa đọc."""
     from evaluation.metrics import do_chinh_xac_trich_dan
 
     ket_qua = do_chinh_xac_trich_dan(
@@ -206,24 +168,11 @@ def test_cau_tra_loi_that_ma_khong_dan_nguon_phai_bi_tinh_0():
     assert ket_qua["diem"] == 0.0
 
 
-# ======================================================================
-# Giám khảo trả điểm NGOÀI thang [0,1]
-# ======================================================================
-
 def test_diem_ngoai_thang_bi_loai_khoi_phep_lay_trung_vi(monkeypatch):
-    """Lỗi thật đã gặp: giám khảo trả 100.0 và 5.0 cho thang điểm 0-1 (đổi sang thang phần
-    trăm / thang 1-5). Prompt ghi rõ "0 đến 1" và JSON Schema cũng khai báo minimum/maximum,
-    nhưng Ollama dịch schema sang grammar để ép sinh - mà grammar không biểu diễn được ràng
-    buộc khoảng giá trị của số, nên không chặn được ở tầng đó.
-
-    Chỉ 2 trong 29 câu như vậy đã kéo Faithfulness trung bình từ 0.88 lên 4.43 - một con số
-    vô nghĩa nhưng nằm gọn trong bảng kết quả, đọc lướt không thấy.
-    """
+    """Điểm giám khảo nằm ngoài thang 0-1 phải bị loại khỏi phép lấy trung vị, vì chỉ vài câu
+    như vậy đã đủ kéo lệch hẳn kết quả trung bình."""
     from evaluation import metrics
 
-    # Kịch bản: lần chấm đầu trả 100.0 (hỏng), hai lần sau trả 0.0 và 0.0 (hợp lệ).
-    # Nếu mẫu hỏng lọt vào phép lấy trung vị, trung vị của [0, 0, 100] vẫn là 0.0 - nên phải
-    # dựng số liệu sao cho mẫu hỏng LÀM ĐỔI kết quả thì test mới có sức phát hiện.
     cac_diem = iter([100.0, 0.0, 0.0])
 
     def judge_gia(prompt):
@@ -233,9 +182,6 @@ def test_diem_ngoai_thang_bi_loai_khoi_phep_lay_trung_vi(monkeypatch):
     monkeypatch.setattr(metrics, "_goi_judge", judge_gia)
 
     ket_qua = metrics._goi_judge_on_dinh("prompt bất kỳ", so_lan=3)
-    # Loại mẫu hỏng -> còn [0.0, 0.0] -> trung vị 0.0.
-    # Nếu KHÔNG loại -> sắp xếp [0.0, 0.0, 100.0] -> trung vị vẫn 0.0, nên phải kiểm thêm
-    # so_lan_bi_loai và dao động thì mới phân biệt được hai đường.
     assert ket_qua["diem"] == 0.0
     assert ket_qua["so_lan_bi_loai"] == 1
     assert ket_qua["dao_dong_judge"] == 0.0, "dao động phải tính trên mẫu HỢP LỆ, không kể 100.0"

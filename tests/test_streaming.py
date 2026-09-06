@@ -1,17 +1,4 @@
-"""Test cho chế độ trả lời theo LUỒNG (streaming).
-
-Phần đáng test ở đây không phải "Ollama có trả về từng mảnh không" (đó là việc của thư
-viện), mà là hai thứ dễ hỏng của riêng hệ thống này:
-
-1. BÓC PHẦN SUY LUẬN khi nó tới theo từng mảnh. Bản không streaming dùng một regex chạy
-   trên chuỗi đã hoàn chỉnh; streaming không có chuỗi hoàn chỉnh nào - thẻ <think> có thể
-   bị cắt đôi giữa hai mảnh. Nếu máy trạng thái sai, người dùng nhìn thấy đúng phần suy
-   luận nội bộ mà cả hệ thống đang cố giấu.
-
-2. HAI CHẾ ĐỘ KHÔNG ĐƯỢC TRÔI RA KHỎI NHAU. sinh_cau_tra_loi() (dùng cho evaluation) và
-   sinh_cau_tra_loi_theo_luong() (dùng cho giao diện) phải cho ra đúng cùng một câu trả
-   lời, nếu không thì con số đo được trong báo cáo không nói gì về thứ người dùng thấy.
-"""
+"""Test cho chế độ trả lời theo LUỒNG (streaming)."""
 
 import sys
 from pathlib import Path
@@ -37,10 +24,7 @@ class EmbeddingGia:
 
 
 class OllamaGia:
-    """Thay cho ollama.Client: phát lại một kịch bản mảnh đã định sẵn.
-
-    `cac_manh` là list dict giống hệt hình dạng Ollama trả về ở chế độ stream=True.
-    """
+    """Thay cho ollama.Client: phát lại một kịch bản mảnh đã định sẵn."""
 
     def __init__(self, cac_manh):
         self.cac_manh = cac_manh
@@ -72,15 +56,9 @@ def _tao_pipeline(cac_manh):
 
 @pytest.fixture(autouse=True)
 def cau_hinh_on_dinh(monkeypatch):
-    # Ngưỡng mặc định tính trên embedding thật; ở đây vector dựng tay nên hạ về 0 để đoạn
-    # duy nhất trong store luôn qua được, và tắt BM25 cho thứ hạng do vector quyết định.
     monkeypatch.setattr(config, "NGUONG_DIEM_TOI_THIEU", 0.0)
     monkeypatch.setattr(config, "TRONG_SO_BM25", 0.0)
 
-
-# ======================================================================
-# Bóc <think> theo từng mảnh
-# ======================================================================
 
 def test_the_think_bi_cat_doi_giua_hai_manh_van_bi_boc_sach():
     """Đây là ca hỏng thật của streaming: regex chạy trên chuỗi hoàn chỉnh không cứu được."""
@@ -124,10 +102,6 @@ def test_suy_luan_o_truong_rieng_cua_ollama_khong_lot_vao_cau_tra_loi():
     ket_qua = pipeline.hoi_dap("Nhà nước có đặc điểm gì?")
     assert ket_qua["cau_tra_loi"] == "Nhà nước có tính giai cấp [1]."
 
-
-# ======================================================================
-# Trình tự sự kiện và tính nhất quán giữa hai chế độ
-# ======================================================================
 
 def test_trinh_tu_su_kien_dung_thu_tu_va_ket_thuc_bang_xong():
     pipeline = _tao_pipeline([

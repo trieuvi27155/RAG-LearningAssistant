@@ -1,8 +1,8 @@
 # Kiến trúc hệ thống — RAG hỏi đáp tài liệu học tập
 
 Tài liệu này tổng hợp bức tranh toàn cảnh của hệ thống. Lý do chi tiết của từng quyết định
-nằm ngay trong code dưới dạng comment, ở đúng chỗ ra quyết định — mục §5 dưới đây chỉ giữ
-lại phần cốt lõi kèm số liệu đã đo.
+nằm ở mục §5 dưới đây, kèm số liệu đã đo. Code chỉ giữ docstring ngắn mô tả công dụng của
+từng hàm — phần lập luận không lặp lại ở đó.
 
 ## Mục lục
 
@@ -368,7 +368,7 @@ Uploader đổi `key` sau mỗi lần xử lý để nút xoá và uploader khô
 
 ## 5. Quyết định thiết kế quan trọng
 
-*(Số §5.x được giữ nguyên vì README và comment trong code tham chiếu tới chúng.)*
+*(Số §5.x được giữ nguyên vì README và các tài liệu khác tham chiếu tới chúng.)*
 
 ### 5.1 `IndexFlatIP` thay vì `IndexFlatL2`
 Vector đã chuẩn hoá norm = 1 → inner product **tương đương cosine similarity**, đúng thước

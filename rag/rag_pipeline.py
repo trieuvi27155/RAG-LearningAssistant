@@ -1,25 +1,4 @@
-"""Ghép luồng Query: retrieval (lai vector + từ khoá) + ghép prompt + gọi LLM qua Ollama.
-
-Dùng chung 1 EmbeddingService và 1 VectorStore với luồng Ingestion (được truyền vào
-từ bên ngoài - app.py hoặc evaluation - chứ RagPipeline không tự tạo, để tránh load
-lại model / index nhiều lần không cần thiết).
-
-Hai vấn đề mà module này giải quyết (đều là lỗi đã gặp thực tế, không phải phòng xa):
-
-1. TÀI LIỆU DÀI -> câu trả lời và trích dẫn lệch. Nguyên nhân: bản trước, khi một trang
-   được xác định là liên quan thì GỘP NGUYÊN TRANG đưa vào prompt. Với giáo trình ~230
-   trang, mỗi trang trung bình 13 chunk (~2000 ký tự), TOP_K=8 trang nghĩa là ~16.000 ký
-   tự ngữ cảnh mà đại đa số không dính dáng gì tới câu hỏi -> LLM bị loãng, trả lời lệch
-   trọng tâm; còn đoạn trích hiển thị (cắt 400 ký tự ĐẦU đoạn gộp) gần như không bao giờ
-   rơi trúng chỗ thật sự khớp câu hỏi. Nay: mỗi đoạn trích được dựng QUANH ĐÚNG chunk khớp
-   nhất và mở rộng dần trong ngân sách ký tự (xem _dung_doan_trich).
-
-2. KHẲNG ĐỊNH SAI -> hệ thống vẫn gật đầu. Nguyên nhân: prompt chỉ yêu cầu "trả lời dựa
-   trên ngữ cảnh", không hề yêu cầu ĐỐI CHIẾU giả định của người hỏi với tài liệu; model
-   nhỏ lại có xu hướng chiều theo người dùng (sycophancy). Nay: câu hỏi dạng kiểm chứng
-   được nhận diện và đi theo một system prompt riêng bắt buộc ra phán quyết ĐÚNG/SAI/KHÔNG
-   ĐỀ CẬP kèm trích nguyên văn căn cứ, đồng thời bật lại chế độ suy luận của model.
-"""
+"""Ghép luồng Query: retrieval (lai vector + từ khoá) + ghép prompt + gọi LLM qua Ollama."""
 
 import itertools
 import logging
@@ -46,26 +25,11 @@ logger = logging.getLogger(__name__)
 
 
 class LoiKhongKetNoiDuocOllama(RuntimeError):
-    """Không mở được kết nối tới máy chủ Ollama (chưa chạy, hoặc OLLAMA_HOST trỏ sai chỗ).
-
-    Cần một lớp lỗi RIÊNG vì đây là lỗi MÔI TRƯỜNG, không phải lỗi dữ liệu: người dùng sửa
-    được bằng đúng một câu lệnh, nhưng chỉ khi được nói cho biết phải chạy lệnh gì.
-
-    Thư viện ollama đã bọc lỗi này thành ConnectionError có thông báo tử tế - nhưng CHỈ ở
-    đường gọi thường (`_request_raw`). Ở đường streaming - đường DUY NHẤT hệ thống này
-    dùng để sinh câu trả lời - kết nối chỉ thật sự mở khi generator được lặp lần đầu, nằm
-    ngoài khối bọc lỗi đó, nên httpx.ConnectError bay thẳng ra ngoài. Người dùng nhận
-    nguyên một traceback "ConnectError: [WinError 10061] ... target machine actively
-    refused it" - không một chữ nào nhắc tới Ollama, cũng không gợi ý phải làm gì.
-    """
+    """Không mở được kết nối tới máy chủ Ollama (chưa chạy, hoặc OLLAMA_HOST trỏ sai chỗ)."""
 
 
 def _thong_bao_khong_ket_noi_duoc() -> str:
-    """Soạn thông báo lỗi kèm ĐÚNG các lệnh cần chạy, đọc host/model từ cấu hình đang dùng.
-
-    Dựng lúc gặp lỗi chứ không phải hằng số dựng lúc import, để nếu người dùng đổi
-    OLLAMA_HOST/OLLAMA_MODEL trong .env thì thông báo vẫn nói đúng giá trị thật.
-    """
+    """Soạn thông báo lỗi kèm ĐÚNG các lệnh cần chạy, đọc host/model từ cấu hình đang dùng."""
     return (
         f"Không kết nối được tới máy chủ Ollama ở {config.OLLAMA_HOST}. "
         "Ollama là tiến trình chạy model ngôn ngữ ngay trên máy bạn — chưa bật nó thì "
@@ -81,18 +45,10 @@ def _thong_bao_khong_ket_noi_duoc() -> str:
 
 
 def kiem_tra_may_chu_llm() -> Optional[str]:
-    """Máy chủ Ollama đã sẵn sàng trả lời chưa? Trả None nếu ổn, chuỗi mô tả lỗi nếu không.
-
-    Kiểm tra TRƯỚC khi người dùng gõ câu hỏi, cùng lý do với mo_hinh_vision_co_san: hai
-    hỏng hóc ở đây (chưa bật Ollama / chưa pull model) đều không dính gì tới câu hỏi và đều
-    sửa được trong một phút - nhưng nếu để tới lúc gọi LLM mới lộ ra thì người dùng đã chờ
-    xong cả vòng truy xuất rồi mới nhận lỗi, và dễ tưởng là hệ thống hỏng.
-
-    Dùng đường gọi KHÔNG streaming (`list`) nên nhanh và không đánh thức model.
-    """
+    """Máy chủ Ollama đã sẵn sàng trả lời chưa? Trả None nếu ổn, chuỗi mô tả lỗi nếu không."""
     try:
         cac_model = ollama.Client(host=config.OLLAMA_HOST).list().models
-    except Exception as loi:  # chưa bật Ollama, sai host, hoặc client khác phiên bản
+    except Exception as loi:
         logger.warning("Không hỏi được danh sách model của Ollama (%s).", loi)
         return _thong_bao_khong_ket_noi_duoc()
     if not any(ten_model_khop(m.model or "", config.OLLAMA_MODEL) for m in cac_model):
@@ -109,18 +65,7 @@ _THE_DONG_THINK = "</think>"
 
 
 class _LocSuyLuanTheoLuong:
-    """Bóc phần <think>...</think> ra khỏi luồng content ĐANG CHẢY, từng mảnh một.
-
-    Ollama tách phần suy luận sang trường riêng (`message.thinking`), nhưng đã quan sát
-    thực tế một số lượt vẫn để thẻ <think> lọt vào content - bản không streaming xử lý việc
-    này bằng một regex chạy trên chuỗi ĐÃ HOÀN CHỈNH. Streaming không có chuỗi hoàn chỉnh
-    để mà chạy regex: mảnh đang tới có thể cắt ngang giữa thẻ ("<thi" | "nk>"), và nếu cứ
-    thế đẩy ra màn hình thì người dùng nhìn thấy đúng phần suy luận thô mà cả hệ thống đang
-    cố giấu đi.
-
-    Vì vậy phải là một máy trạng thái: giữ lại phần đuôi có thể là NỬA CÁI THẺ (tối đa
-    len("</think>") - 1 ký tự) cho tới khi mảnh sau tới đủ để kết luận.
-    """
+    """Bóc phần <think>...</think> ra khỏi luồng content ĐANG CHẢY, từng mảnh một."""
 
     def __init__(self) -> None:
         self._dem = ""
@@ -138,7 +83,6 @@ class _LocSuyLuanTheoLuong:
             )
             vi_tri = self._dem.find(the)
             if vi_tri == -1:
-                # Chưa thấy thẻ: đẩy ra tất cả TRỪ phần đuôi có thể là nửa cái thẻ.
                 giu_lai = len(the) - 1
                 if len(self._dem) > giu_lai:
                     ra.append(self._dem[: len(self._dem) - giu_lai])
@@ -156,51 +100,19 @@ class _LocSuyLuanTheoLuong:
             return "", con_lai
         return con_lai, ""
 
-# langdetect lấy mẫu ngẫu nhiên nên MẶC ĐỊNH KHÔNG TẤT ĐỊNH: chạy cùng một câu 8 lần cho 8
-# kết quả khác nhau. Đo thực tế với "What does criminal law regulate?":
-#     ['ca:0.57','en:0.29','ro:0.14'] / ['ca:0.71','en:0.29'] / ['ca:1.00'] / ['en:0.71','ca:0.29'] ...
-# Với hệ song ngữ, điều này nghĩa là CÙNG một câu hỏi lúc được trả lời tiếng Anh lúc tiếng
-# Việt - người dùng không thể tin được hệ thống. Cố định seed để kết quả lặp lại được.
 DetectorFactory.seed = 0
 
-# Dấu phụ riêng của tiếng Việt (ă â đ ê ô ơ ư + các tổ hợp thanh điệu). Không ngôn ngữ nào
-# khác dùng đủ bộ này, nên thấy một ký tự bất kỳ trong đây là chắc chắn tiếng Việt.
 _MAU_DAU_TIENG_VIET = re.compile(
     r"[ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ]",
     re.IGNORECASE,
 )
 
-# Từ tiếng Việt KHÔNG DẤU dùng làm cứu cánh cuối khi langdetect bó tay. Cố ý chỉ chọn những
-# từ KHÔNG phải từ tiếng Anh - "la", "the", "hay", "ta" đều là từ tiếng Anh hoặc quá mơ hồ
-# nên bị loại, dù chúng rất phổ biến trong tiếng Việt. Thà bỏ sót còn hơn nhận nhầm câu
-# tiếng Anh thành tiếng Việt.
 _TU_TIENG_VIET_KHONG_DAU = frozenset({
     "gi", "khong", "nao", "duoc", "cua", "nhung", "cac", "mot", "nguoi", "hoac",
     "phai", "viec", "theo", "nhu", "voi", "trong", "cho", "tai", "boi", "vi",
     "dieu", "luat", "phap", "hinh", "su", "nha", "nuoc", "chinh", "tri",
 })
 
-# ============================================================
-# SYSTEM PROMPT
-# ============================================================
-# System prompt bắt buộc: chỉ trả lời dựa trên context, không suy đoán, phải nói rõ
-# khi tài liệu không có thông tin. Đây là ràng buộc quan trọng nhất của đồ án nên được
-# viết thành quy tắc rõ ràng, đánh số, thay vì 1 câu mô tả chung chung dễ bị model bỏ qua.
-# Có 2 bản VI/EN (thay vì 1 bản + câu lệnh "trả lời theo ngôn ngữ câu hỏi") để bản thân
-# hướng dẫn cũng đúng ngôn ngữ mong muốn - LLM bám theo system prompt tốt hơn khi toàn bộ
-# prompt nhất quán 1 ngôn ngữ, thay vì hướng dẫn tiếng Việt nhưng yêu cầu trả lời tiếng Anh.
-#
-# QUY TẮC 5 VÀ 6 TỪNG XUNG ĐỘT NHAU: bản trước đặt cạnh nhau "trả lời ĐẦY ĐỦ, tổng hợp mọi
-# thông tin liên quan" và "trả lời ĐI THẲNG VÀO TRỌNG TÂM" mà không nói cái nào thắng khi
-# hai điều đó ngược chiều. Với model 4B, đặt hai chỉ thị ngược chiều cạnh nhau thường khiến
-# model chọn cái DỄ TUÂN THỦ HƠN - mà "ngắn gọn" luôn dễ hơn "đầy đủ", vì bỏ bớt thì không
-# có gì để làm sai. Nay quy tắc 5 nói rõ nó có ưu tiên cao hơn, và quy tắc 6 định nghĩa lại
-# "ngắn gọn" theo SỐ CHỮ THỪA chứ không theo LƯỢNG THÔNG TIN.
-#
-# Lưu ý về thứ tự sửa lỗi: đây là nguyên nhân YẾU NHẤT trong ba nguyên nhân của "câu trả lời
-# ngắn" (hai cái kia: num_ctx bị bỏ trống, và ngưỡng cosine tuyệt đối cắt mất đoạn trích).
-# Sửa prompt trước hai cái kia sẽ cho một cải thiện nhẹ đủ để tưởng đã tìm đúng nguyên nhân,
-# trong khi bug thật vẫn nằm nguyên đó.
 HE_THONG_PROMPT_VI = """Bạn là trợ lý học tập, chỉ được trả lời dựa trên các đoạn trích ("ngữ cảnh") được cung cấp dưới đây.
 
 QUY TẮC BẮT BUỘC:
@@ -231,12 +143,6 @@ MANDATORY RULES:
 6. "Brief" here means NO WASTED WORDS, not less information. Specifically: do not repeat the same point, do not re-quote the same passage multiple times, do not split the answer into more headings/sections than the content actually needs, do not add filler intros/conclusions. Never DROP information that is in the context to make the answer shorter, and never ADD information outside the context to make it longer.
 7. Answer in English, with clear, well-structured writing."""
 
-# Prompt riêng cho câu hỏi dạng KIỂM CHỨNG một khẳng định. Khác biệt cốt lõi so với prompt
-# thường: bắt buộc ra phán quyết rời rạc (ĐÚNG/SAI/KHÔNG ĐỀ CẬP) và bắt buộc trích NGUYÊN
-# VĂN câu làm căn cứ. Hai ràng buộc này chặn đúng cơ chế gây lỗi: model không còn được phép
-# viết một đoạn văn chung chung "nghe như đang đồng ý", mà buộc phải chỉ ra một câu cụ thể
-# trong tài liệu - nếu không có câu nào chứng minh được thì tự nó lộ ra là khẳng định sai
-# hoặc tài liệu không đề cập.
 HE_THONG_PROMPT_KIEM_CHUNG_VI = """Bạn là trợ lý học tập kiêm người KIỂM CHỨNG thông tin. Người dùng đang đưa ra một khẳng định (hoặc một giả định ẩn trong câu hỏi) và cần biết nó có khớp với tài liệu hay không.
 
 QUY TẮC BẮT BUỘC:
@@ -291,11 +197,6 @@ Before writing the VERDICT, re-read the Comparison you just wrote: if it says th
 7. Write the three parts directly. Do NOT echo the rule names, do NOT write headings like "Required structure", "Context analysis" or "Final answer" - only the three labels Evidence / Comparison / VERDICT and their content.
 8. Answer in English."""
 
-# Dấu hiệu câu hỏi mang tính KIỂM CHỨNG một khẳng định (thay vì hỏi thông tin thuần tuý).
-# Cố ý ưu tiên ĐỘ CHÍNH XÁC hơn độ phủ: một câu hỏi thường bị nhận nhầm thành kiểm chứng sẽ
-# nhận về câu trả lời có bố cục phán quyết khá cứng nhắc, nên thà bỏ sót còn hơn nhận nhầm.
-# Phần bỏ sót vẫn được quy tắc số 4 của prompt thường (chống a dua) đỡ lại, nên không có
-# trường hợp nào rơi hoàn toàn ra ngoài lưới.
 _CAC_MAU_KIEM_CHUNG = [
     r"có phải", r"phải không", r"phải ko", r"đúng không", r"đúng ko", r"đúng chứ",
     r"có đúng", r"đúng hay sai", r"sai không", r"sai ko", r"chính xác không",
@@ -310,24 +211,10 @@ _MAU_KIEM_CHUNG = re.compile("|".join(_CAC_MAU_KIEM_CHUNG), re.IGNORECASE)
 
 
 def _phat_hien_ngon_ngu(cau_hoi: str) -> str:
-    """Phát hiện câu hỏi là tiếng Anh hay tiếng Việt.
-
-    Hệ thống chỉ hỗ trợ 2 ngôn ngữ, nên việc cần làm là CHỌN GIỮA HAI, không phải nhận diện
-    ngôn ngữ trong số hàng trăm thứ tiếng. Bản trước viết `"en" if detect(...) == "en" else
-    "vi"` - tức coi mọi thứ không phải tiếng Anh là tiếng Việt. Nghe thì hợp lý nhưng sai
-    thực tế: langdetect chấm "What does criminal law regulate?" là tiếng Catalan (0.71) và
-    tiếng Anh chỉ 0.29, nên câu tiếng Anh rõ ràng đó bị trả lời bằng tiếng Việt. Câu hỏi
-    ngắn rất hay bị đoán nhầm sang các thứ tiếng Latin họ gần (ca, tl, it...).
-
-    Ba bước, dừng ở bước nào có bằng chứng chắc chắn nhất:
-    """
-    # 1. Dấu tiếng Việt là bằng chứng không thể nhầm - không ngôn ngữ nào khác dùng bộ dấu
-    #    này, nên thấy là chốt luôn, khỏi cần đoán.
+    """Phát hiện câu hỏi là tiếng Anh hay tiếng Việt."""
     if _MAU_DAU_TIENG_VIET.search(cau_hoi):
         return "vi"
 
-    # 2. So TRỰC TIẾP xác suất của đúng 2 ngôn ngữ quan tâm, bỏ qua thứ hạng chung. Nhờ vậy
-    #    "en 0.29 vs ca 0.71" vẫn ra tiếng Anh - vì tiếng Catalan không nằm trong lựa chọn.
     try:
         xac_suat = {kq.lang: kq.prob for kq in detect_langs(cau_hoi)}
     except LangDetectException:
@@ -335,24 +222,13 @@ def _phat_hien_ngon_ngu(cau_hoi: str) -> str:
     if "en" in xac_suat or "vi" in xac_suat:
         return "en" if xac_suat.get("en", 0.0) > xac_suat.get("vi", 0.0) else "vi"
 
-    # 3. Không có cả hai (câu quá ngắn, hoặc toàn thuật ngữ): tìm dấu vết tiếng Việt KHÔNG
-    #    DẤU. Người Việt hay gõ không dấu ("SIFT la gi", "luat hinh su dieu chinh gi") -
-    #    langdetect chấm những câu này thành tl/it, và nếu không bắt được thì hệ thống trả
-    #    lời tiếng Anh cho người hỏi tiếng Việt.
     cac_tu = set(re.findall(r"[a-z]+", cau_hoi.lower()))
     if cac_tu & _TU_TIENG_VIET_KHONG_DAU:
         return "vi"
 
-    # 4. Không có MỘT dấu vết tiếng Việt nào (không dấu phụ, không từ chức năng không dấu)
-    #    mà vẫn là một câu có chữ -> nhiều khả năng là tiếng Anh. Tiếng Việt luôn để lại một
-    #    trong hai dấu vết đó; văn bản không có gì cả thì khó mà là tiếng Việt.
-    #    Bước này cần vì langdetect đôi khi trả về danh sách KHÔNG chứa cả en lẫn vi (vd
-    #    ['ca:1.00'] cho một câu tiếng Anh rõ ràng), lúc đó bước 2 không quyết được.
     if len(cac_tu) >= 2:
         return "en"
 
-    # 5. Hết cách đoán (chuỗi rỗng, toàn số, toàn dấu câu) -> tiếng Việt, vì đây là ngôn ngữ
-    #    chính của hệ thống (xem README.md).
     return "vi"
 
 
@@ -362,14 +238,7 @@ def la_cau_hoi_kiem_chung(cau_hoi: str) -> bool:
 
 
 def _noi_lien_mach(truoc: str, sau: str, toi_da: int = 300) -> str:
-    """Nối 2 chunk liền kề, bỏ phần bị lặp do overlap khi chia chunk.
-
-    Chunking cố ý cho 2 chunk liên tiếp chồng lấn nhau (CHUNK_OVERLAP_TOKENS) để câu bị cắt
-    đôi vẫn xuất hiện trọn ở một trong hai chunk. Nhưng khi nối lại để hiển thị/đưa vào
-    prompt, phần chồng lấn đó thành ra lặp nguyên một đoạn - vừa khó đọc trong trích dẫn,
-    vừa tốn ngân sách ngữ cảnh cho nội dung trùng. Tìm đoạn cuối của `truoc` trùng với đoạn
-    đầu của `sau` rồi bỏ đi đúng một bản.
-    """
+    """Nối 2 chunk liền kề, bỏ phần bị lặp do overlap khi chia chunk."""
     gioi_han = min(len(truoc), len(sau), toi_da)
     for do_dai in range(gioi_han, 20, -1):
         if truoc.endswith(sau[:do_dai]):
@@ -378,20 +247,10 @@ def _noi_lien_mach(truoc: str, sau: str, toi_da: int = 300) -> str:
 
 
 def _uoc_luong_so_token(*cac_phan: str) -> int:
-    """Ước lượng số token của prompt mà KHÔNG cần tokenizer của LLM.
-
-    Hệ thống chỉ có tokenizer của embedding model (họ XLM-R), không phải của Qwen, và nạp
-    thêm một tokenizer nữa chỉ để đếm là cái giá không đáng: con số này dùng để CẤP PHÁT
-    ngân sách cửa sổ ngữ cảnh, nên sai về phía cấp DƯ hoàn toàn vô hại, còn sai về phía cấp
-    THIẾU thì tái tạo lại đúng bug num_ctx (xem config.OLLAMA_NUM_CTX). Vì vậy dùng tỷ lệ
-    ký tự/token cố ý đặt THẤP hơn giá trị đo được cho tiếng Việt để luôn ước lượng dư.
-    """
+    """Ước lượng số token của prompt mà KHÔNG cần tokenizer của LLM."""
     return int(sum(len(p) for p in cac_phan) / config.SO_KY_TU_MOI_TOKEN_UOC_LUONG) + 1
 
 
-# Dấu hiệu câu hỏi NHIỀU VẾ - cần nhiều đoạn trích và câu trả lời dài hơn hẳn. Chọn theo
-# HÀNH ĐỘNG người hỏi yêu cầu ("so sánh", "liệt kê", "phân biệt") chứ không theo chủ đề: chủ
-# đề thì vô hạn và phụ thuộc corpus, còn tập động từ yêu cầu thì nhỏ và ổn định.
 _MAU_CAU_HOI_NHIEU_VE = re.compile(
     r"\bso\s*sánh\b|\bphân\s*biệt\b|\bkhác\s*(nhau|biệt)\b|\bliệt\s*kê\b|\bcác\s+bước\b"
     r"|\bưu\s*(và\s*)?nhược\b|\bvì\s*sao\b|\btại\s*sao\b|\bmối\s*(liên\s*hệ|quan\s*hệ)\b"
@@ -402,24 +261,7 @@ _MAU_CAU_HOI_NHIEU_VE = re.compile(
 
 
 def la_cau_hoi_phuc_tap(cau_hoi: str) -> bool:
-    """Câu hỏi này có xứng đáng được cấp NGÂN SÁCH ĐẦY ĐỦ không?
-
-    Vì sao cần phân biệt: "Overfitting là gì?" và "So sánh KNN với Naive Bayes về độ phức
-    tạp, dữ liệu cần thiết và trường hợp nên dùng" đang được đối xử y hệt nhau - cùng 30 ứng
-    viên đưa vào cross-encoder, cùng trần sinh 12000 token, cùng cỡ cửa sổ ngữ cảnh. Câu thứ
-    nhất không dùng hết phần nào trong số đó, nhưng vẫn phải chờ nó.
-
-    BA DẤU HIỆU, chỉ cần khớp một là được coi là phức tạp:
-      1. Dài hơn config.SO_TU_CAU_HOI_DON_GIAN từ - câu hỏi dài thường mang nhiều ràng buộc.
-      2. Chứa động từ yêu cầu nhiều vế (so sánh, liệt kê, vì sao...).
-      3. Là câu KIỂM CHỨNG một khẳng định - loại này bật cả chế độ suy luận của model và
-         bắt buộc phải trích nguyên văn căn cứ, nên luôn cần ngân sách đầy đủ (§5.29).
-
-    Cố ý nghiêng về phía CẤP DƯ: đoán nhầm một câu phức tạp thành đơn giản thì câu trả lời có
-    thể thiếu ý hoặc bị cắt cụt - một lỗi người dùng nhìn thấy. Đoán nhầm chiều ngược lại chỉ
-    làm câu hỏi đó chạy chậm bằng đúng bản cũ, tức không tệ hơn hiện trạng chút nào. Hai loại
-    sai này không ngang giá, nên ngưỡng cũng không được đặt ở giữa.
-    """
+    """Câu hỏi này có xứng đáng được cấp NGÂN SÁCH ĐẦY ĐỦ không?"""
     if not config.BAT_NGAN_SACH_THICH_UNG:
         return True
     if len(cau_hoi.split()) > config.SO_TU_CAU_HOI_DON_GIAN:
@@ -430,25 +272,7 @@ def la_cau_hoi_phuc_tap(cau_hoi: str) -> bool:
 
 
 def _tinh_num_ctx(so_token_prompt: int, num_predict: Optional[int] = None) -> int:
-    """Cửa sổ ngữ cảnh cần cấp cho một prompt dài `so_token_prompt` token.
-
-    Vì sao TÍNH ĐỘNG chứ không đặt một hằng số rồi thôi: hằng số đủ dùng hôm nay sẽ âm thầm
-    không đủ vào ngày ai đó tăng TOP_K, tăng NGAN_SACH_KY_TU_MOI_DOAN, hay đổi sang model
-    có system prompt dài hơn - và triệu chứng của việc thiếu (câu trả lời cụt, đoạn trích
-    liên quan nhất bị cắt mất) KHÔNG hề giống một lỗi cấu hình, nên sẽ bị chẩn đoán nhầm
-    đúng như đã xảy ra một lần rồi. Tính động + cảnh báo khiến lỗi này không tái diễn im lặng.
-
-    Nhưng KHÔNG cấp đúng-vừa-đủ theo từng câu hỏi: Ollama coi num_ctx là một phần định danh
-    của phiên bản model đang nạp, nên đổi giá trị này giữa hai lượt hỏi sẽ khiến nó NẠP LẠI
-    model (mất hàng chục giây trên CPU). Vì vậy giá trị được làm tròn lên theo thang gấp đôi
-    và bắt đầu từ OLLAMA_NUM_CTX: gần như mọi câu hỏi rơi vào cùng một bậc, không có lần nạp
-    lại nào, mà cấu hình quá tay vẫn được nới thay vì bị cắt.
-
-    num_predict: trần sinh THẬT của lượt này. Phần dự phòng cho việc sinh không cần lớn hơn
-    trần đó - cấp 4000 token dự phòng cho một lượt chỉ được phép sinh 3000 là giữ chỗ một
-    khoảng không bao giờ dùng tới, và chính khoảng giữ chỗ đó có thể đẩy num_ctx lên bậc cao
-    hơn (mỗi lần đổi bậc là một lần Ollama nạp lại model). Bỏ trống thì giữ nguyên hành vi cũ.
-    """
+    """Cửa sổ ngữ cảnh cần cấp cho một prompt dài `so_token_prompt` token."""
     du_phong = config.OLLAMA_DU_PHONG_TOKEN_SINH
     if num_predict is not None:
         du_phong = min(du_phong, max(num_predict, 1))
@@ -460,9 +284,6 @@ def _tinh_num_ctx(so_token_prompt: int, num_predict: Optional[int] = None) -> in
     num_ctx = min(num_ctx, tran)
 
     if can > num_ctx:
-        # Đã chạm trần RAM. Prompt vẫn có thể lọt (phần bị ép là ngân sách sinh), nhưng đây
-        # là dấu hiệu cấu hình đã vượt quá thứ máy này gánh nổi - nói thẳng ra chỗ cần sửa
-        # thay vì để người dùng gặp lại triệu chứng "câu trả lời tự nhiên ngắn đi".
         logger.warning(
             "Prompt ~%d token + %d token dự phòng sinh = %d, vượt trần OLLAMA_NUM_CTX_TOI_DA=%d. "
             "Hạ TOP_K hoặc NGAN_SACH_KY_TU_MOI_DOAN (ĐỪNG hạ num_ctx), hoặc nâng trần nếu máy đủ RAM.",
@@ -472,44 +293,17 @@ def _tinh_num_ctx(so_token_prompt: int, num_predict: Optional[int] = None) -> in
 
 
 def ngan_sach_token_ngu_canh(num_predict: int, so_token_co_dinh: int) -> int:
-    """Số token còn lại dành cho các ĐOẠN TRÍCH, sau khi đã trừ mọi phần cố định của prompt.
-
-    so_token_co_dinh: system prompt + câu hỏi + nhãn + khối ngữ cảnh hội thoại - những thứ
-    KHÔNG được phép cắt (cắt system prompt là gỡ bỏ chính các ràng buộc chống bịa đặt).
-    """
+    """Số token còn lại dành cho các ĐOẠN TRÍCH, sau khi đã trừ mọi phần cố định của prompt."""
     tran = max(config.OLLAMA_NUM_CTX_TOI_DA, config.OLLAMA_NUM_CTX)
     du_phong = min(config.OLLAMA_DU_PHONG_TOKEN_SINH, max(num_predict, 1))
     return tran - du_phong - so_token_co_dinh
 
 
 def nen_ngu_canh(cac_chunk: List[Dict], ngan_sach_token: int) -> List[Dict]:
-    """Ép các đoạn trích vào `ngan_sach_token`, bỏ từ đoạn XẾP HẠNG THẤP NHẤT lên.
-
-    VÌ SAO PHẢI CÓ BƯỚC NÀY, khi _tinh_num_ctx() đã cảnh báo lúc prompt vượt trần: cảnh báo
-    chỉ nói cho người dùng biết cấu hình đã quá tay, nhưng lượt hỏi ĐANG chạy thì vẫn hỏng -
-    Ollama cắt im lặng từ ĐẦU phần user content, tức xoá đúng đoạn trích [1], vốn là đoạn
-    liên quan nhất (_ghep_prompt xếp đoạn tốt nhất lên trước). Người dùng nhận về một câu trả
-    lời bám vào những đoạn kém liên quan nhất mà không có một dấu hiệu nào.
-
-    VÌ SAO KHÔNG HẠ num_ctx: đó chính là cái bẫy đã sập một lần rồi (xem config.OLLAMA_NUM_CTX).
-    Hạ num_ctx không làm prompt ngắn lại, nó chỉ đổi chỗ bị cắt từ "do ta chọn" sang "do máy
-    chủ chọn" - mà máy chủ thì luôn chọn cắt phần đầu, tức phần quý nhất.
-
-    QUY TẮC CẮT, theo thứ tự:
-      1. Bỏ hẳn các đoạn xếp cuối (điểm thấp nhất) cho tới khi vừa ngân sách. Bỏ từ CUỐI giữ
-         nguyên được số thứ tự [1], [2]... của các đoạn còn lại, nên trích dẫn mà LLM gắn vẫn
-         khớp đúng nguồn - nếu bỏ từ giữa thì mọi số sau đó lệch đi một bậc.
-      2. Nếu ngay cả một đoạn duy nhất cũng không vừa, cắt ngắn NỘI DUNG của nó và nói rõ đã
-         cắt. Thà đưa nửa đầu một đoạn còn hơn không đưa gì.
-
-    Trả về danh sách MỚI dùng riêng cho việc ghép prompt; danh sách gốc không đổi nên trích
-    dẫn hiển thị cho người đọc vẫn giữ nguyên văn đầy đủ.
-    """
+    """Ép các đoạn trích vào `ngan_sach_token`, bỏ từ đoạn XẾP HẠNG THẤP NHẤT lên."""
     if not cac_chunk or not config.BAT_NEN_NGU_CANH or ngan_sach_token <= 0:
         return cac_chunk
 
-    # Mỗi đoạn còn kèm một dòng tiêu đề "[n] (Nguồn: ..., trang ...)" - ước lượng dư một chút
-    # cho phần đó để không tính thiếu.
     _CHI_PHI_NHAN = 30
     so_token = [_uoc_luong_so_token(c["noidung"]) + _CHI_PHI_NHAN for c in cac_chunk]
     if sum(so_token) <= ngan_sach_token:
@@ -547,11 +341,7 @@ def _ghep_prompt(
     ngu_canh_hoi_thoai: str = "",
 ) -> str:
     """Ghép Top-K đoạn trích vào prompt, đánh số từng đoạn kèm nguồn để LLM trích dẫn đúng
-    theo số thứ tự [1], [2]... khớp với thứ tự hiển thị ở citation.py.
-
-    ngon_ngu ("vi"/"en") quyết định nhãn/tiêu đề trong prompt (không phải nội dung chunk,
-    vốn giữ nguyên ngôn ngữ gốc của tài liệu) - để toàn bộ prompt nhất quán 1 ngôn ngữ.
-    """
+    theo số thứ tự [1], [2]... khớp với thứ tự hiển thị ở citation.py."""
     if ngon_ngu == "en":
         nhan_nguon, nhan_trang = "Source", "page/slide"
         tieu_de_ngu_canh, tieu_de_cau_hoi = "CONTEXT", "QUESTION"
@@ -575,15 +365,6 @@ def _ghep_prompt(
     ]
     ngu_canh = "\n\n".join(cac_doan)
 
-    # Khối ngữ cảnh hội thoại (chỉ có với câu hỏi nối tiếp) đặt SAU đoạn trích và TRƯỚC câu
-    # hỏi, dưới nhãn riêng của nó. Ba chi tiết đều có lý do:
-    #   - Nhãn riêng, kèm câu "KHÔNG PHẢI nguồn thông tin, tuyệt đối không trích dẫn": ngữ
-    #     cảnh này chứa câu hỏi của chính người dùng, không phải tài liệu. Cho model coi nó
-    #     ngang hàng với đoạn trích là mở đúng cánh cửa mà cả hệ thống tồn tại để đóng.
-    #   - Chỉ chứa CÁC CÂU HỎI trước, không chứa câu trả lời trước: câu trả lời cũ là lời
-    #     của model, và để model trích lại lời của chính nó như thể là tài liệu thì trích dẫn
-    #     mất sạch ý nghĩa.
-    #   - Đặt sát câu hỏi để model đọc nó đúng lúc cần giải nghĩa "cái thứ hai" là gì.
     khoi_ngu_canh = f"\n{ngu_canh_hoi_thoai}\n" if ngu_canh_hoi_thoai else ""
 
     return f"""{tieu_de_ngu_canh}:
@@ -603,74 +384,26 @@ class RagPipeline:
     ):
         self.embedding_service = embedding_service
         self.vector_store = vector_store
-        # None = không rerank. Truyền từ ngoài vào (không tự tạo) theo đúng lý do ở §5.8:
-        # model reranker nặng ~2GB, phải nạp đúng 1 lần cho cả phiên chứ không phải mỗi
-        # lần khởi tạo pipeline.
         self.reranker_service = reranker_service
-        # Điểm rerank cao nhất của LƯỢT TRUY XUẤT GẦN NHẤT, dùng cho ngưỡng từ chối
-        # (NGUONG_DIEM_RERANK_TOI_THIEU). None khi chưa truy xuất lần nào hoặc khi tắt
-        # rerank - lúc đó ngưỡng này tự bỏ qua, hệ thống lùi về đúng hành vi cũ.
         self.diem_rerank_cao_nhat = None
-        # Kết quả của bước chuẩn bị truy vấn ở lượt GẦN NHẤT (rag/tiep_noi_hoi_thoai.py):
-        # {"cau_hoi_goc", "cau_hoi_truy_xuat", "da_viet_lai", "la_tiep_noi"}. Tầng trên đọc
-        # nó để ghép prompt bằng đúng câu đã truy xuất, và để nói cho người dùng biết hệ
-        # thống đã hiểu câu hỏi nối tiếp của họ thành câu gì.
         self.truy_van_da_dung = None
-        # Bộ đếm token THẬT do Ollama trả về ở lượt gọi gần nhất: {"prompt_eval_count",
-        # "eval_count", "done_reason", "num_ctx", "uoc_luong_token_prompt"}. Xem
-        # _ghi_nhan_thong_ke_llm - đây là thứ duy nhất phát hiện được prompt bị cắt.
         self.thong_ke_llm = None
-        # Câu hỏi của lượt gần nhất có được xếp là PHỨC TẠP không (xem la_cau_hoi_phuc_tap).
-        # Đặt tại truy_xuat() và đọc lại ở bước sinh câu trả lời, để cả hai bước cấp ngân
-        # sách theo CÙNG một phán đoán - hai bước tự đánh giá riêng thì có lúc lệch nhau, và
-        # lúc đó ngân sách rerank với ngân sách sinh không còn nói về cùng một câu hỏi nữa.
         self.la_cau_hoi_phuc_tap = True
         self._ollama_client = ollama.Client(host=config.OLLAMA_HOST)
-        # Đặt False khi máy chủ Ollama báo model không hỗ trợ chế độ suy luận, để những lần
-        # gọi sau không phải thử-rồi-hỏng thêm lần nào nữa (xem _goi_llm).
         self._ho_tro_thinking = True
 
-    # ------------------------------------------------------------------
-    # RETRIEVAL
-    # ------------------------------------------------------------------
     def _ung_vien(
         self, cac_truy_van: List[tuple], so_ung_vien: int, nguon_cho_phep: Optional[Set[str]]
     ) -> Tuple[List[tuple], Set[int]]:
-        """Lấy ứng viên từ mọi nhánh tìm kiếm rồi hợp nhất bằng RRF.
-
-        cac_truy_van: [(cau_hoi, vector, trong_so)]. Phần tử ĐẦU TIÊN là truy vấn CHÍNH -
-        điểm cosine trả ra được đo theo nó, vì mọi ngưỡng trong hệ thống đều hiệu chỉnh trên
-        một thang cosine duy nhất và trộn cosine của hai truy vấn khác nhau vào cùng một
-        trường là kiểu lỗi rất khó lần ra (cùng lý do đã giữ nguyên cosine khi rerank, §5.24).
-
-        Trả về ([(vi_tri, diem_cosine)] sắp xếp theo thứ hạng hợp nhất, tốt nhất trước;
-        tập vị trí do BM25 CỨU HỘ bơm vào). Tập thứ hai cần cho _xep_hang_lai - xem
-        config.SO_UNG_VIEN_BM25_CUU_HO.
-
-        Reciprocal Rank Fusion cộng nghịch đảo THỨ HẠNG chứ không cộng điểm số, vì cosine
-        (chặn trong [-1, 1]) và BM25 (không chặn trên, phụ thuộc độ hiếm từ khoá) là 2 thang
-        đo khác hẳn nhau - cộng thẳng thì nhánh nào có thang lớn hơn sẽ nuốt trọn nhánh kia.
-        Chuẩn hoá điểm về cùng thang cũng là một hướng, nhưng phải chọn cách chuẩn hoá và nó
-        rất nhạy với ngoại lệ; RRF không cần tham số nào ngoài RRF_K nên ổn định hơn nhiều.
-
-        NHIỀU TRUY VẤN đi qua đúng cơ chế đó, không cần cơ chế mới: câu hỏi gốc và câu hỏi đã
-        viết lại theo ngữ cảnh hội thoại (rag/tiep_noi_hoi_thoai.py) chỉ là thêm hai danh
-        sách xếp hạng nữa để RRF hợp nhất - vốn đúng việc RRF sinh ra để làm. Nhờ vậy một bản
-        viết lại sai KHÔNG xoá được kết quả đúng của câu gốc, nó chỉ làm thứ hạng nhiễu đi.
-        """
-        # FAISS/BM25 đều không lọc được theo metadata trong lúc tìm, nên việc lọc theo nguồn
-        # người dùng tick chọn ở UI phải làm tại đây (lý do phải over-fetch từ đầu).
+        """Lấy ứng viên từ mọi nhánh tìm kiếm rồi hợp nhất bằng RRF."""
+        # FAISS/BM25 không lọc được theo metadata lúc tìm, nên lọc theo nguồn người dùng
+        # tick chọn ở UI phải làm tại đây.
         def duoc_phep(vi_tri: int) -> bool:
             return (
                 nguon_cho_phep is None
                 or self.vector_store.metadata[vi_tri]["nguon"] in nguon_cho_phep
             )
 
-        # RRF CÓ TRỌNG SỐ. Bản đầu cộng 2 nhánh ngang nhau, và chính điều đó phá truy xuất
-        # chéo ngôn ngữ: câu hỏi tiếng Việt hỏi về tài liệu tiếng Anh thì BM25 không khớp nổi
-        # từ nào với tài liệu ĐÚNG, nhưng khớp rất "tự tin" với tài liệu tiếng Việt SAI - mà
-        # RRF lại coi hạng 1 của BM25 ngang hạng 1 của dense. Trọng số cho phép nói rõ mức
-        # tin cậy của từng nhánh; mặc định BM25 = 0 (xem số đo ở config.TRONG_SO_BM25).
         diem_rrf: Dict[int, float] = defaultdict(float)
         dense_chinh: List[tuple] = []
         for thu_tu_truy_van, (cau_hoi, vector, trong_so_truy_van) in enumerate(cac_truy_van):
@@ -694,13 +427,6 @@ class RagPipeline:
                     diem_rrf[vi_tri] += (
                         trong_so_truy_van * trong_so_nhanh / (config.RRF_K + thu_hang)
                     )
-        # BM25 CỨU HỘ: bơm thêm ứng viên vào tập đưa đi rerank mà KHÔNG cho một điểm RRF
-        # nào (điểm 0 -> luôn xếp cuối). Đây là chỗ tách bạch hai vai trò của BM25: giúp
-        # RECALL (đoạn chứa từ khoá hiếm / mã định danh / tên riêng OOV chắc chắn có mặt
-        # trong tập ứng viên) mà không có quyền PRECISION (không đẩy được thứ hạng của
-        # chính nó lên). Việc xếp hạng để cross-encoder quyết - nếu đoạn thật sự liên quan
-        # nó sẽ được đẩy lên, nếu không thì nằm yên ở cuối. Xem config.SO_UNG_VIEN_BM25_CUU_HO
-        # để biết vì sao cách này KHÔNG lặp lại cái hại đã đo được ở TRONG_SO_BM25.
         vi_tri_cuu_ho: Set[int] = set()
         if config.SO_UNG_VIEN_BM25_CUU_HO > 0:
             for vi_tri, _ in self.vector_store.tim_kiem_tu_khoa(
@@ -713,8 +439,6 @@ class RagPipeline:
         if not diem_rrf:
             return [], set()
 
-        # Mọi ngưỡng lọc và điểm hiển thị đều quy về cosine cho cùng một thang đo; chunk chỉ
-        # do BM25 hoặc do truy vấn phụ tìm ra thì chưa có điểm cosine nên phải tính bù ở đây.
         vector_chinh = cac_truy_van[0][1]
         diem_cosine = {vi_tri: diem for vi_tri, diem in dense_chinh if vi_tri in diem_rrf}
         con_thieu = [vi_tri for vi_tri in diem_rrf if vi_tri not in diem_cosine]
@@ -727,32 +451,7 @@ class RagPipeline:
         self, cau_hoi: str, ung_vien: List[tuple], vi_tri_cuu_ho: Optional[Set[int]] = None,
         so_ung_vien_rerank: Optional[int] = None,
     ) -> List[tuple]:
-        """Xếp lại thứ tự ứng viên bằng cross-encoder (xem rag/reranker.py).
-
-        so_ung_vien_rerank: số ứng viên đầu được chấm cho riêng lượt này. Bỏ trống thì dùng
-        config.SO_UNG_VIEN_RERANK. Đây là chỗ ngân sách thích ứng ăn vào: cross-encoder chấm
-        từng cặp (câu hỏi, đoạn) nên chi phí tỉ lệ THẲNG với số ứng viên, mà một câu hỏi định
-        nghĩa ngắn thì đoạn đúng gần như luôn nằm trong nhóm đầu (xem la_cau_hoi_phuc_tap).
-
-        Chỉ rerank số ứng viên đầu đó, phần đuôi giữ nguyên thứ tự RRF. Lý do
-        giữ đuôi thay vì cắt bỏ: các bước sau còn lọc tiếp (trần đoạn mỗi trang, sàn điểm),
-        nên nếu cắt cụt ở đây thì có trường hợp không còn đủ ứng viên để lấp TOP_K.
-
-        vi_tri_cuu_ho: các ứng viên do BM25 bơm vào với điểm RRF = 0 (config.SO_UNG_VIEN_BM25_CUU_HO).
-        Chúng LUÔN được chấm, kể cả khi rơi ngoài SO_UNG_VIEN_RERANK ứng viên đầu - nếu
-        không thì cả cơ chế cứu hộ vô nghĩa: điểm RRF 0 đẩy chúng xuống cuối, mà xuống cuối
-        thì không bao giờ được cross-encoder nhìn tới, tức chúng chỉ tồn tại cho có.
-
-        Chấm điểm trên NỘI DUNG CHUNK GỐC, chưa mở rộng ngữ cảnh: vừa rẻ hơn (đoạn ngắn hơn
-        nhiều), vừa đúng hơn về mặt đo lường - ta đang hỏi "chunk này có khớp câu hỏi không",
-        chứ không phải "cả vùng quanh nó có khớp không". Mở rộng ngữ cảnh là việc làm SAU khi
-        đã chọn xong, để LLM đọc đủ ý (§5.11).
-
-        QUAN TRỌNG: điểm cosine đi kèm mỗi ứng viên được GIỮ NGUYÊN, không thay bằng điểm
-        rerank. Rerank chỉ đổi THỨ TỰ CHỌN. Nhờ vậy diem_similarity hiển thị trên UI, sàn lọc
-        NGUONG_DIEM_TOI_THIEU và mọi chỗ đang đọc điểm đó vẫn giữ đúng một thang đo duy nhất
-        (cosine) - trộn 2 thang đo vào cùng một trường là kiểu lỗi rất khó lần ra về sau.
-        """
+        """Xếp lại thứ tự ứng viên bằng cross-encoder (xem rag/reranker.py)."""
         if not self.reranker_service or len(ung_vien) < 2:
             return ung_vien
 
@@ -771,33 +470,7 @@ class RagPipeline:
         return [ung_vien[i] for i in thu_tu_moi] + [ung_vien[i] for i in duoi]
 
     def _dung_doan_trich(self, vi_tri_neo: int) -> Dict:
-        """Dựng 1 đoạn trích liền mạch quanh chunk khớp nhất ("neo").
-
-        Bắt đầu từ chính chunk neo rồi mở rộng luân phiên sang chunk liền sau / liền trước
-        TRONG CÙNG TRANG, cho tới khi chạm ngân sách ký tự. Ưu tiên mở rộng về phía SAU
-        trước vì kiểu mất mát hay gặp nhất là một câu hoặc một đoạn liệt kê bị ranh giới
-        chunk cắt ngang, phần còn thiếu nằm ở chunk kế tiếp.
-
-        Đây là điểm thay thế cho cách "gộp nguyên trang" của bản trước: vẫn nối lại được
-        phần bị cắt (mục đích ban đầu), nhưng không kéo theo toàn bộ phần còn lại của trang
-        vốn chẳng liên quan gì tới câu hỏi. Với tài liệu ngắn (slide, trang thưa chữ) thì
-        cả trang thường vẫn lọt trong ngân sách, nên hành vi y hệt bản cũ - nghĩa là cách
-        làm này đúng cho cả tài liệu dài lẫn ngắn, không phải đánh đổi bên này lấy bên kia.
-
-        MỞ RỘNG QUA RANH GIỚI TRANG (config.MO_RONG_QUA_RANH_GIOI_TRANG): bản trước chặn
-        cứng trong đúng một (nguồn, trang). Với slide thì đúng - mỗi slide là một đơn vị nội
-        dung tự đóng. Với PDF văn bản chảy liên tục thì SAI: một định nghĩa bắt đầu cuối
-        trang 12 và kết thúc đầu trang 13 không bao giờ được nối lại, vì chunk neo nằm cuối
-        trang 12 và việc mở rộng chạm hết mảng của trang rồi dừng. Nay phạm vi mở rộng là
-        toàn bộ tài liệu theo thứ tự đọc, có hai chốt chặn: ngân sách ký tự (như cũ) và số
-        trang tối đa được vượt qua mỗi hướng (config.SO_TRANG_TOI_DA_MO_RONG) - chốt thứ hai
-        giữ cho slide thưa chữ không hút thêm 2-3 slide xung quanh cho đầy ngân sách.
-
-        Số trang của trích dẫn vẫn là trang của chunk NEO. Các trang bị đi qua được trả kèm
-        ở "cac_trang" để tầng trên biết đoạn này đọc xuyên mấy trang, nhưng chúng KHÔNG được
-        dùng làm nguồn trích dẫn: phần thật sự khớp câu hỏi là chunk neo, phần mở rộng chỉ
-        là ngữ cảnh đọc kèm.
-        """
+        """Dựng 1 đoạn trích liền mạch quanh chunk khớp nhất ("neo")."""
         neo = self.vector_store.metadata[vi_tri_neo]
         if config.MO_RONG_QUA_RANH_GIOI_TRANG:
             pham_vi = self.vector_store.chi_muc_nguon[neo["nguon"]]
@@ -811,8 +484,6 @@ class RagPipeline:
             try:
                 return abs(int(trang_do) - int(neo["trang"])) > config.SO_TRANG_TOI_DA_MO_RONG
             except (TypeError, ValueError):
-                # Loader nào đó không đánh số trang bằng số -> không so được khoảng cách,
-                # lùi về hành vi an toàn là không cho vượt sang trang khác.
                 return trang_do != neo["trang"]
 
         da_chon = [chi_so]
@@ -834,12 +505,6 @@ class RagPipeline:
             uu_tien_phai = not uu_tien_phai
 
             noi_dung_them = self.vector_store.metadata[pham_vi[ke_tiep]]["noidung"]
-            # Chunk không vừa ngân sách, hoặc đã ra ngoài phạm vi trang cho phép -> ĐÓNG HẲN
-            # hướng đó lại rồi thử hướng còn lại, thay vì bỏ qua nó để lấy chunk xa hơn. Bỏ
-            # qua sẽ tạo ra lỗ hổng giữa đoạn trích: nội dung nhảy cóc mà không có dấu hiệu
-            # gì, người đọc tưởng 2 phần đứng liền nhau trong tài liệu. Đoạn trích buộc phải
-            # liền mạch. (Với ranh giới trang, đóng hướng còn là điều DUY NHẤT đúng: các
-            # chunk xa hơn ở hướng đó chỉ có thể cách xa hơn nữa.)
             if len(noi_dung_them) > con_lai or qua_xa_trang(ke_tiep):
                 if ke_tiep >= chi_so:
                     phai = len(pham_vi)
@@ -858,21 +523,13 @@ class RagPipeline:
         return {
             "nguon": neo["nguon"],
             "trang": neo["trang"],
-            # Mọi trang mà đoạn trích này đi qua (thường chỉ có 1). Dùng để hiển thị và để
-            # đo được tần suất mở rộng xuyên trang thật sự xảy ra - không phải nguồn trích dẫn.
             "cac_trang": sorted(
                 {self.vector_store.metadata[pham_vi[i]]["trang"] for i in da_chon},
                 key=str,
             ),
             "noidung": noi_dung,
-            # Chuyển tiếp loại nội dung + đường dẫn ảnh ra ngoài để UI hiển thị đúng dạng
-            # (bảng render thành bảng, ảnh hiện ra ảnh). Lấy từ chunk NEO vì đó là phần
-            # thật sự khớp câu hỏi - các chunk mở rộng xung quanh chỉ là ngữ cảnh thêm.
             "loai_noi_dung": neo.get("loai_noi_dung", "van_ban"),
             "duong_dan_anh": neo.get("duong_dan_anh", ""),
-            # Chunk khớp nhất, tách riêng khỏi cả đoạn đã mở rộng: đây mới là phần thật sự
-            # khiến đoạn này được chọn, nên citation.py dùng nó làm đoạn trích hiển thị thay
-            # vì cắt bừa mấy trăm ký tự đầu (nguyên nhân khiến trích dẫn trước đây trỏ sai chỗ).
             "doan_khop": neo["noidung"],
             "cac_vi_tri": {pham_vi[i] for i in da_chon},
         }
@@ -884,29 +541,10 @@ class RagPipeline:
         nguon_cho_phep: Optional[Set[str]] = None,
         lich_su: Optional[List[Dict]] = None,
     ) -> List[Dict]:
-        """Tìm các đoạn trích liên quan nhất tới câu hỏi.
-
-        Trả về list dict {"nguon", "trang", "noidung", "doan_khop", "diem_similarity"},
-        sắp xếp theo độ liên quan (tốt nhất trước).
-
-        nguon_cho_phep: tập tên file được phép dùng (None = dùng tất cả).
-        lich_su: lịch sử hội thoại [{"role", "content"}] để hiểu câu hỏi NỐI TIẾP. None hoặc
-        rỗng thì hành vi y hệt bản chưa có tính năng này - đây cũng là lý do evaluation và
-        test không phải sửa gì: chúng hỏi từng câu độc lập nên không truyền lịch sử.
-
-        Câu hỏi đã dùng để truy xuất (có thể là bản viết lại) nằm ở
-        `self.truy_van_da_dung` sau khi hàm này chạy xong, để tầng trên còn (a) ghép prompt
-        bằng đúng câu đó và (b) nói cho người dùng biết hệ thống đã hiểu câu hỏi ra sao.
-        """
+        """Tìm các đoạn trích liên quan nhất tới câu hỏi."""
         top_k = top_k or config.TOP_K
-        # Xoá điểm rerank của lượt TRƯỚC ngay từ đầu: nếu lượt này không chạy rerank (quá ít
-        # ứng viên, hoặc tắt rerank) mà vẫn còn giá trị cũ, ngưỡng từ chối sẽ phán xét câu
-        # hỏi hiện tại bằng điểm của một câu hỏi khác - sai âm thầm, rất khó lần ra.
         self.diem_rerank_cao_nhat = None
 
-        # Đưa ngữ cảnh hội thoại vào truy vấn khi đây là câu hỏi NỐI TIẾP. Tầng nhận diện
-        # tất định chạy trước, và đường mặc định (ghép câu hỏi trước) cũng tất định - nên
-        # bước này không thêm lượt gọi LLM nào (§5.58).
         self.truy_van_da_dung = chuan_bi_truy_van(cau_hoi, lich_su, client=self._ollama_client)
         cau_hoi_chinh = self.truy_van_da_dung["cau_hoi_chinh"]
 
@@ -917,16 +555,12 @@ class RagPipeline:
             max(top_k * config.HE_SO_OVER_FETCH, config.SO_UNG_VIEN_TOI_THIEU),
             self.vector_store.so_luong_vector,
         )
-        # Truy vấn CHÍNH là bản đã mang ngữ cảnh (nếu có): nó là câu đủ nghĩa, nên cosine của
-        # nó mới là con số so được với các ngưỡng vốn hiệu chỉnh trên câu hỏi độc lập.
         with do_thoi_gian.do("query_ma_hoa_cau_hoi"):
             cac_truy_van = [(
                 cau_hoi_chinh,
                 self.embedding_service.encode_cau_hoi([cau_hoi_chinh]),
                 1.0,
             )]
-        # Câu GỐC được giữ làm một nhánh riêng để một lần ghép ngữ cảnh sai không xoá được
-        # kết quả đúng - xem config.TRONG_SO_TRUY_VAN_GOC.
         for van_ban, trong_so in (
             [(cau_hoi, config.TRONG_SO_TRUY_VAN_GOC)] if cau_hoi_chinh != cau_hoi else []
         ) + [(v, config.TRONG_SO_TRUY_VAN_GOC)
@@ -937,16 +571,6 @@ class RagPipeline:
 
         with do_thoi_gian.do("query_ung_vien_dense_bm25"):
             ung_vien, vi_tri_cuu_ho = self._ung_vien(cac_truy_van, so_ung_vien, nguon_cho_phep)
-        # Rerank theo truy vấn CHÍNH: cross-encoder chấm cặp (câu hỏi, đoạn) nên nó cần một
-        # câu hỏi đầy đủ nghĩa. Đưa "Thế còn cái thứ hai?" vào đây thì mọi đoạn đều bị chấm
-        # gần 0 - và vì điểm rerank còn là cơ chế TỪ CHỐI (§5.29), câu nối tiếp hợp lệ sẽ bị
-        # từ chối oan. Đây là lý do quan trọng nhất khiến bước này không thể chỉ là "thêm một
-        # nhánh truy xuất cho vui".
-        #
-        # NGÂN SÁCH RERANK THÍCH ỨNG: đánh giá độ phức tạp trên truy vấn CHÍNH (bản đã mang
-        # ngữ cảnh hội thoại), không phải câu người dùng gõ. Một câu nối tiếp trông rất ngắn
-        # ("Thế còn cái thứ hai?") nhưng bản đủ nghĩa của nó thì không - chấm trên câu gốc sẽ
-        # cấp ngân sách thấp cho đúng loại câu hỏi khó nhất của hệ thống.
         self.la_cau_hoi_phuc_tap = la_cau_hoi_phuc_tap(cau_hoi_chinh)
         with do_thoi_gian.do("query_rerank"):
             ung_vien = self._xep_hang_lai(
@@ -957,13 +581,6 @@ class RagPipeline:
                 ),
             )
 
-        # TRẦN SỐ ĐOẠN MỖI TRANG - THÍCH ỨNG. Trần chỉ có ý nghĩa khi CÓ nhiều trang để phân
-        # bổ. Với câu hỏi mà toàn bộ câu trả lời nằm gọn trong một trang (một mục định nghĩa,
-        # một bảng tiêu chí, một quy trình - rất phổ biến), ép lấy đoạn từ trang khác vừa bỏ
-        # sót phần đúng vừa làm loãng ngữ cảnh bằng phần sai. Đo độ đa dạng trang trên đầu
-        # bảng ứng viên rồi mới quyết định; đủ đa dạng thì áp trần như cũ, không thì bỏ trần.
-        # SO_UNG_VIEN_XET_DA_DANG_TRANG = 0 -> tắt hẳn phần thích ứng, luôn áp trần cứng
-        # (đường lui để đo đối chứng với hành vi cũ).
         so_trang_ung_vien = len({
             (
                 self.vector_store.metadata[vi_tri]["nguon"],
@@ -976,14 +593,12 @@ class RagPipeline:
         )
 
         cac_doan: List[Dict] = []
-        da_dung: set = set()  # vị trí chunk đã nằm trong một đoạn nào đó
+        da_dung: set = set()
         so_doan_theo_trang: Dict[tuple, int] = defaultdict(int)
         so_doan_anh = 0
         for vi_tri, diem in ung_vien:
             if len(cac_doan) >= top_k:
                 break
-            # Chunk này đã nằm trong một đoạn dựng trước đó (thường là chunk liền kề của
-            # chính đoạn đó) -> không tạo đoạn mới trùng nội dung, chỉ nâng điểm của đoạn cũ.
             if vi_tri in da_dung:
                 for doan in cac_doan:
                     if vi_tri in doan["cac_vi_tri"]:
@@ -995,16 +610,9 @@ class RagPipeline:
                 self.vector_store.metadata[vi_tri]["nguon"],
                 self.vector_store.metadata[vi_tri]["trang"],
             )
-            # Trần số đoạn mỗi trang: với tài liệu dài, các chunk liền kề cùng 1 trang có
-            # điểm gần bằng nhau nên rất dễ chiếm sạch TOP_K suất, đẩy hết những trang liên
-            # quan khác ra ngoài. Đây chính là kiểu lỗi "câu trả lời chỉ bám 1 chỗ trong tài
-            # liệu dài, bỏ sót phần còn lại" mà người dùng gặp phải.
             if so_doan_theo_trang[khoa_trang] >= tran_moi_trang:
                 continue
 
-            # Trần riêng cho đoạn LÀ ẢNH: mô tả ảnh do model vision sinh ra khá dài, nên với
-            # tài liệu nhiều hình chúng dễ chiếm hết suất của các trang văn bản đúng (đo
-            # thực tế: Recall@K tụt 0.96 -> 0.92 khi chưa có trần này). Xem config.SO_DOAN_ANH_TOI_DA.
             la_anh = self.vector_store.metadata[vi_tri].get("loai_noi_dung") == "anh"
             if la_anh and so_doan_anh >= config.SO_DOAN_ANH_TOI_DA:
                 continue
@@ -1016,30 +624,15 @@ class RagPipeline:
             so_doan_theo_trang[khoa_trang] += 1
             so_doan_anh += la_anh
 
-        # Sàn lọc rác: rỗng -> sinh_cau_tra_loi() từ chối luôn, không gọi LLM.
-        # Cố ý đặt THẤP và KHÔNG dùng làm cơ chế chính để phát hiện câu hỏi ngoài phạm vi -
-        # đã đo và xác nhận không tồn tại ngưỡng nào làm được việc đó (câu tiếng Anh đúng
-        # chủ đề cho điểm thấp hơn câu tiếng Việt lạc đề, xem config.NGUONG_DIEM_TOI_THIEU).
-        # Việc phán đoán "tài liệu có nói về chuyện này không" thuộc về LLM, vì nó ĐỌC được
-        # nội dung đoạn trích chứ không chỉ nhìn một con số.
         so_doan_truoc_loc = len(cac_doan)
         cac_doan = [d for d in cac_doan if d["diem_similarity"] >= config.NGUONG_DIEM_TOI_THIEU]
 
-        # TẦNG LỌC TƯƠNG ĐỐI. Cosine của E5 không phải thang đo tuyệt đối: giá trị của nó
-        # trôi theo domain, ngôn ngữ, độ dài chunk, phong cách văn bản - nên một hằng số
-        # hiệu chỉnh trên corpus này sẽ cắt oan trên corpus khác. Tỷ lệ giữa các đoạn TRONG
-        # CÙNG MỘT LƯỢT thì không trôi, vì cả lượt dùng chung một câu hỏi và một model.
-        # Sàn tuyệt đối ở trên vẫn giữ nhưng chỉ còn vai trò chặn rác (xem
-        # config.NGUONG_DIEM_TOI_THIEU và TY_LE_GIU_SO_VOI_DIEM_CAO_NHAT).
         if cac_doan and config.TY_LE_GIU_SO_VOI_DIEM_CAO_NHAT > 0:
             diem_cao_nhat = max(d["diem_similarity"] for d in cac_doan)
             san_tuong_doi = diem_cao_nhat * config.TY_LE_GIU_SO_VOI_DIEM_CAO_NHAT
             cac_doan = [d for d in cac_doan if d["diem_similarity"] >= san_tuong_doi]
 
         if config.LOG_PHAN_BO_DIEM:
-            # Số liệu để TRẢ LỜI bằng đo đạc câu hỏi "ngưỡng có đang cắt oan trên corpus này
-            # không", thay vì đổi ngưỡng theo cảm tính - đúng cách đã dùng khi đo BM25.
-            # Chạy trên ~10 câu ở corpus cũ và ~10 câu ở corpus mới rồi so số đoạn sống sót.
             logger.info(
                 "PHAN_BO_DIEM | cosine=%s | rerank_cao_nhat=%s | trang_ung_vien=%d "
                 "tran_moi_trang=%d | song_sot=%d/%d | hoi: %.60s",
@@ -1060,11 +653,6 @@ class RagPipeline:
             )
             return []
 
-        # Tuyến phòng thủ THỨ HAI, dựa trên điểm rerank thay vì cosine. Đây mới là thứ bắt
-        # được câu hỏi ngoài phạm vi tài liệu: đo thực tế cho thấy câu lạc đề rơi về gần 0
-        # tuyệt đối (0.000-0.003) trong khi câu đúng chủ đề - kể cả hỏi bằng tiếng Anh trên
-        # tài liệu tiếng Việt - vẫn từ 0.019 trở lên. Cosine KHÔNG làm được việc này (xem
-        # config.NGUONG_DIEM_RERANK_TOI_THIEU để biết số đo đầy đủ và lý do chọn ngưỡng thấp).
         if self.diem_rerank_cao_nhat is not None and (
             self.diem_rerank_cao_nhat < config.NGUONG_DIEM_RERANK_TOI_THIEU
         ):
@@ -1078,44 +666,14 @@ class RagPipeline:
             return []
 
         for doan in cac_doan:
-            doan.pop("cac_vi_tri", None)  # chi tiết nội bộ, không cần lộ ra ngoài pipeline
+            doan.pop("cac_vi_tri", None)
         return cac_doan
 
-    # ------------------------------------------------------------------
-    # SINH CÂU TRẢ LỜI
-    # ------------------------------------------------------------------
     def _goi_llm_theo_luong(
         self, he_thong_prompt: str, prompt_nguoi_dung: str, bat_thinking: bool,
         num_predict: Optional[int] = None,
     ) -> Iterator[Dict]:
-        """Gọi Ollama ở chế độ STREAMING, sinh ra từng mảnh {"loai", "them"} khi model viết.
-
-        Vì sao streaming là bắt buộc chứ không phải trang trí: trên CPU, qwen3:4b mất 35-70
-        giây cho một câu hỏi vì luôn sinh một đoạn suy luận dài trước khi trả lời (đã đo,
-        không tắt được bằng tham số - xem ghi chú về `think` bên dưới). Ở chế độ chờ-rồi-trả
-        -một-cục, toàn bộ khoảng thời gian đó người dùng chỉ thấy một cái spinner đứng yên,
-        không có cách nào phân biệt "đang chạy" với "đã treo". Streaming không làm model
-        nhanh hơn một giây nào, nhưng đưa thời điểm nhìn thấy chữ đầu tiên từ ~40 giây xuống
-        còn ~2-3 giây, và cho người dùng thấy hệ thống đang lập luận trên đúng tài liệu nào.
-
-        Chỉ có MỘT đường gọi LLM trong hệ thống (đường này); bản không streaming
-        (_goi_llm) chỉ là vòng lặp gom hết các mảnh lại. Cố ý làm vậy để hai chế độ không
-        bao giờ trôi ra khỏi nhau về hành vi (lọc <think>, xử lý lỗi, tham số sinh).
-
-        Về tham số `think` - đã đo trực tiếp trên qwen3:4b + ollama client 0.6.2, kết quả
-        trái với trực giác nên ghi lại đây để không ai "sửa lại cho gọn":
-          - think=True      -> máy chủ tách suy luận sang message["thinking"], content sạch.
-          - KHÔNG truyền gì -> y hệt think=True (mặc định của model biết suy luận), content sạch.
-          - think=False     -> KHÔNG tắt suy luận, mà tắt việc TÁCH nó ra: toàn bộ chuỗi suy
-                               luận (thường bằng tiếng Anh, kiểu "Okay, let me figure out...")
-                               đổ thẳng vào content và hiện nguyên si cho người dùng.
-        Vì vậy khi không cần suy luận thì BỎ HẲN tham số, tuyệt đối không truyền False.
-
-        Mẹo chèn hậu tố "/no_think" của bản trước cũng đã bỏ: đo thực tế cho thấy nó không
-        hề tắt suy luận (model vẫn sinh ~15.000 ký tự suy luận) và không nhanh hơn đáng kể
-        (43.7s so với 47.0s - trong khoảng nhiễu), trong khi lại là quy ước riêng của Qwen3,
-        đổi sang model khác thì nó thành một chuỗi rác nằm ngay cuối câu hỏi.
-        """
+        """Gọi Ollama ở chế độ STREAMING, sinh ra từng mảnh {"loai", "them"} khi model viết."""
         num_predict = num_predict or config.OLLAMA_NUM_PREDICT
         so_token_prompt = _uoc_luong_so_token(he_thong_prompt, prompt_nguoi_dung)
         num_ctx = _tinh_num_ctx(so_token_prompt, num_predict)
@@ -1128,12 +686,6 @@ class RagPipeline:
             options={
                 "temperature": config.OLLAMA_TEMPERATURE,
                 "num_predict": num_predict,
-                # BẮT BUỘC khai báo. Không truyền num_ctx thì Ollama cấp 4096 token bất kể
-                # model hỗ trợ bao nhiêu, và khi prompt vượt quá thì nó cắt IM LẶNG từ đầu
-                # phần user content - tức xoá đúng đoạn trích [1], [2] liên quan nhất, vì
-                # _ghep_prompt() xếp đoạn tốt nhất lên trước. Giải thích đầy đủ (kèm ước
-                # lượng cho thấy prompt mặc định ~4900 token, một mình đã vượt 4096) nằm ở
-                # config.OLLAMA_NUM_CTX.
                 "num_ctx": num_ctx,
             },
             stream=True,
@@ -1142,18 +694,7 @@ class RagPipeline:
             tham_so["think"] = True
 
         def _mo_luong(ts):
-            """Mở luồng và LẤY LUÔN mảnh đầu tiên.
-
-            Bắt buộc phải lấy mảnh đầu ngay tại đây: với stream=True, client trả về một
-            generator nên lỗi phía máy chủ (vd model không hỗ trợ `think`) chỉ nổ ra ở lần
-            lặp ĐẦU TIÊN chứ không phải lúc gọi. Không chạm vào generator thì khối try/except
-            bên dưới sẽ không bao giờ bắt được lỗi đó.
-
-            Cũng vì lý do đó mà lỗi KHÔNG KẾT NỐI ĐƯỢC phải bắt ngay ở đây: thư viện ollama
-            chỉ dịch httpx.ConnectError sang ConnectionError có thông báo tử tế ở đường gọi
-            KHÔNG streaming; đường streaming để nó lọt nguyên si ra ngoài (xem
-            LoiKhongKetNoiDuocOllama).
-            """
+            """Mở luồng và LẤY LUÔN mảnh đầu tiên."""
             try:
                 it = iter(self._ollama_client.chat(**ts))
                 return it, next(it)
@@ -1165,8 +706,6 @@ class RagPipeline:
         except ollama.ResponseError:
             if "think" not in tham_so:
                 raise
-            # Model không có chế độ suy luận (llama3, mistral...) -> máy chủ trả lỗi. Ghi nhớ
-            # để các lượt sau khỏi thử lại, rồi gọi lại ngay để người dùng không thấy lỗi.
             logger.info("Model '%s' không hỗ trợ tham số think - bỏ qua.", config.OLLAMA_MODEL)
             self._ho_tro_thinking = False
             tham_so.pop("think")
@@ -1174,10 +713,6 @@ class RagPipeline:
         except StopIteration:
             return
 
-        # Phòng vệ: phần "thinking" của model (nếu có) đã được Ollama tách sang trường riêng
-        # `message.thinking`, không nằm trong content - nhưng đã quan sát thực tế một số
-        # trường hợp thẻ <think>...</think> vẫn lọt vào content. Lọc theo luồng để người dùng
-        # không bao giờ thấy phần suy luận nội bộ thô lẫn trong câu trả lời đang hiện dần.
         loc = _LocSuyLuanTheoLuong()
         cac_manh_suy_luan: List[str] = []
         da_co_cau_tra_loi = False
@@ -1208,15 +743,6 @@ class RagPipeline:
             yield {"loai": "cau_tra_loi", "them": phan_tra_loi}
 
         if not da_co_cau_tra_loi and cac_manh_suy_luan:
-            # Model nhét TẤT CẢ vào phần suy luận và không viết câu trả lời nào. Thà đưa ra
-            # phần suy luận - người dùng còn đọc được điều gì đó và tự thấy nó dở dang - hơn
-            # là một bong bóng chat trống trơn trông y hệt như hệ thống bị lỗi. Đây cũng đúng
-            # hành vi dự phòng của bản không streaming trước đây.
-            #
-            # Nguyên nhân đã từng bị chẩn đoán NHẦM là chạm num_predict (mặc định 12000). Thủ
-            # phạm thật là num_ctx: khi cửa sổ mặc định 4096 bị prompt ~4900 token ăn hết,
-            # phần còn lại cho thinking + câu trả lời gần bằng 0, model viết được mấy dòng
-            # suy luận rồi chạm trần. num_predict=12000 chưa bao giờ với tới được.
             logger.warning(
                 "Model không sinh câu trả lời nào ngoài phần suy luận - trả về phần suy luận "
                 "để không hiện bong bóng rỗng. Thống kê lượt gọi: %s (xem num_ctx và "
@@ -1229,19 +755,7 @@ class RagPipeline:
     def _ghi_nhan_thong_ke_llm(
         self, manh, so_token_prompt: int, num_ctx: int, num_predict: Optional[int] = None
     ) -> None:
-        """Đọc bộ đếm token thật của Ollama ở mảnh cuối luồng và cảnh báo nếu bị cắt.
-
-        Đây là tuyến CHỨNG MINH cho bug num_ctx: prompt_eval_count là số token máy chủ THẬT
-        SỰ đã nạp, đối chiếu được với ước lượng của ta và với num_ctx đã cấp. Trước khi có
-        nó, việc prompt bị cắt không để lại một dấu vết nào - không lỗi, không cảnh báo, chỉ
-        có câu trả lời tự nhiên ngắn đi và trích dẫn trỏ vào những đoạn kém liên quan. Một
-        lớp lỗi mà hệ thống KHÔNG THỂ tự phát hiện thì mọi kết luận rút ra từ nó đều đáng ngờ.
-
-        done_reason:
-          "stop"   - model tự viết xong.
-          "length" - chạm trần sinh (num_predict, hoặc phần còn lại của num_ctx) -> câu trả
-                     lời bị cắt cụt giữa chừng.
-        """
+        """Đọc bộ đếm token thật của Ollama ở mảnh cuối luồng và cảnh báo nếu bị cắt."""
         so_token_that = manh.get("prompt_eval_count")
         ly_do_dung = manh.get("done_reason")
         num_predict = num_predict or config.OLLAMA_NUM_PREDICT
@@ -1275,20 +789,10 @@ class RagPipeline:
     def sinh_cau_tra_loi_theo_luong(
         self, cau_hoi: str, cac_chunk: List[Dict], ngu_canh_hoi_thoai: str = ""
     ) -> Iterator[Dict]:
-        """Sinh câu trả lời theo luồng: yield {"loai": "suy_luan"|"cau_tra_loi", "them": str}.
-
-        Ngôn ngữ trả lời (VI/EN) tự nhận diện từ chính câu hỏi (yêu cầu đồ án: hỏi tiếng
-        Anh -> trả lời tiếng Anh, hỏi tiếng Việt -> trả lời tiếng Việt).
-
-        ngu_canh_hoi_thoai: các câu hỏi trước trong phiên, CHỈ để model giải nghĩa những từ
-        trỏ ra ngoài ("dấu hiệu thứ hai" là thứ hai của cái gì). Mặc định rỗng, tức hành vi
-        y hệt bản single-turn - đây cũng là lý do evaluation và test không phải sửa gì.
-        """
+        """Sinh câu trả lời theo luồng: yield {"loai": "suy_luan"|"cau_tra_loi", "them": str}."""
         ngon_ngu = _phat_hien_ngon_ngu(cau_hoi)
 
         if not cac_chunk:
-            # Không có đoạn nào đủ liên quan (index rỗng, hoặc mọi đoạn đều dưới ngưỡng) ->
-            # không gọi LLM, trả lời ngay theo đúng ràng buộc "không bịa thông tin".
             yield {"loai": "cau_tra_loi", "them": config.CAU_TU_CHOI[ngon_ngu]}
             return
 
@@ -1300,35 +804,8 @@ class RagPipeline:
         else:
             he_thong_prompt = HE_THONG_PROMPT_EN if ngon_ngu == "en" else HE_THONG_PROMPT_VI
 
-        # NGÂN SÁCH SINH KHÔNG THÍCH ỨNG - và đây là một tính năng đã bị GỠ BỎ sau khi nó
-        # gây lỗi thật cho người dùng. Ghi lại đầy đủ để không ai thêm lại.
-        #
-        # Bản trước hạ num_predict xuống 3000 cho câu hỏi "đơn giản", với lập luận: "câu trả
-        # lời có trích dẫn hiếm khi vượt 1000 token, phần suy luận của qwen3 thì cần dư địa".
-        # Lập luận đó SAI ở chỗ căn bản: `num_predict` giới hạn SUY LUẬN + CÂU TRẢ LỜI CỘNG
-        # LẠI, mà riêng chuỗi suy luận của qwen3 đã ngốn 2.000-4.000 token. Suy luận không
-        # phải phần phụ cần "dư địa" - nó là phần chiếm chỗ CHÍNH.
-        #
-        # Hậu quả người dùng nhìn thấy: câu trả lời đứt giữa chừng, kết thúc bằng chữ "và".
-        # Đo lại trên đúng câu hỏi đó ("Tài liệu X nói về những nội dung gì?" - 9 từ nên bị
-        # xếp là đơn giản):
-        #     num_predict=3000  -> sinh 2978 token, câu trả lời  569 ký tự (sát trần, đứt)
-        #     num_predict=12000 -> sinh 3948 token, câu trả lời 1012 ký tự (đủ)
-        #
-        # Vì sao KHÔNG chỉ nâng ngưỡng lên cho an toàn: độ dài suy luận không hề tương quan
-        # với độ dài câu hỏi (đo được 1.261 tới 7.232 token cho những câu hỏi dài tương đương),
-        # nên không tồn tại một ngưỡng theo số từ nào là an toàn. Và quan trọng hơn - khoản
-        # lợi vốn dĩ bằng KHÔNG: _tinh_num_ctx() giữ chỗ min(OLLAMA_DU_PHONG_TOKEN_SINH=4000,
-        # num_predict), nên mọi giá trị từ 4000 trở lên cho ra cùng một num_ctx. Muốn tiết
-        # kiệm được gì thì phải xuống dưới 4000, tức đúng vùng gây cắt cụt.
-        #
-        # Tóm lại: tham số này chỉ "có lợi" khi nó không an toàn. Ngân sách RERANK thích ứng
-        # (30 so với 12 ứng viên) thì vẫn giữ - nó tiết kiệm thật và không cắt gì của ai.
         num_predict = config.OLLAMA_NUM_PREDICT
 
-        # NÉN NGỮ CẢNH TRƯỚC KHI GHÉP PROMPT, không phải sau. Phải ước lượng được phần CỐ
-        # ĐỊNH của prompt (system prompt, câu hỏi, khối ngữ cảnh hội thoại) mới biết còn lại
-        # bao nhiêu token cho đoạn trích - và phần cố định đó là thứ tuyệt đối không cắt.
         cac_chunk_gui = nen_ngu_canh(
             cac_chunk,
             ngan_sach_token_ngu_canh(
@@ -1347,12 +824,7 @@ class RagPipeline:
         )
 
     def sinh_cau_tra_loi(self, cau_hoi: str, cac_chunk: List[Dict]) -> str:
-        """Bản gom-hết-rồi-trả-một-lần của sinh_cau_tra_loi_theo_luong().
-
-        Dùng cho evaluation và test - những chỗ không có ai ngồi nhìn màn hình nên không cần
-        hiện dần. Cố ý gọi lại đúng generator ở trên thay vì gọi Ollama lần nữa, để chế độ
-        đo đạc chạy đúng một đường mã với chế độ người dùng thật.
-        """
+        """Bản gom-hết-rồi-trả-một-lần của sinh_cau_tra_loi_theo_luong()."""
         cac_manh = [
             sk["them"]
             for sk in self.sinh_cau_tra_loi_theo_luong(cau_hoi, cac_chunk)
@@ -1368,26 +840,7 @@ class RagPipeline:
         lich_su: Optional[List[Dict]] = None,
         doi_chieu: Optional[bool] = None,
     ) -> Iterator[Dict]:
-        """Chạy trọn luồng Query và tường thuật lại từng chặng cho tầng giao diện.
-
-        Các loại sự kiện yield ra:
-          {"loai": "truy_xuat_xong", "cac_chunk": [...], "giay": float, "truy_van": {...}}
-          {"loai": "suy_luan",   "them": str}   - model đang lập luận, chưa phải câu trả lời
-          {"loai": "cau_tra_loi","them": str}   - từng mảnh câu trả lời thật
-          {"loai": "dang_doi_chieu"}            - bắt đầu đối chiếu chéo các nguồn
-          {"loai": "xong",       "ket_qua": {...}}
-
-        Tách "truy_xuat_xong" thành một sự kiện riêng là có chủ đích: nó tới sau ~2 giây,
-        tức trước khi LLM kịp viết chữ nào, nên giao diện có thể hiện ngay "đã tìm được N
-        đoạn trong tài liệu X" - người dùng biết hệ thống đang làm gì và trên tài liệu nào,
-        thay vì nhìn một cái spinner câm suốt cả phút.
-
-        lich_su: lịch sử hội thoại, để hiểu câu hỏi nối tiếp (xem truy_xuat).
-        doi_chieu: bật/tắt bước đối chiếu chéo các nguồn cho riêng lượt này; None = theo
-        config.BAT_DOI_CHIEU_NGUON. `run_evaluation.py` tắt hẳn nó vì bước này không đổi câu
-        trả lời (chỉ thêm cảnh báo), nên để bật sẽ kéo dài một lần đánh giá vốn đã 60-90 phút
-        mà không làm thay đổi bất kỳ metric nào đang đo.
-        """
+        """Chạy trọn luồng Query và tường thuật lại từng chặng cho tầng giao diện."""
         moc_bat_dau = time.perf_counter()
         cac_chunk = self.truy_xuat(
             cau_hoi, top_k=top_k, nguon_cho_phep=nguon_cho_phep, lich_su=lich_su
@@ -1404,13 +857,6 @@ class RagPipeline:
             "truy_van": truy_van,
         }
 
-        # LLM nhận ĐÚNG câu hỏi người dùng đã gõ, kèm một khối ngữ cảnh hội thoại riêng khi
-        # đây là câu nối tiếp. Không đưa bản đã ghép/viết lại vào đây: bản đó phục vụ truy
-        # xuất, còn câu trả lời phải trả lời đúng thứ người dùng hỏi và đọc lên phải tự nhiên.
-        #
-        # Vì sao vẫn cần khối ngữ cảnh: LLM KHÔNG nhìn thấy lịch sử chat - messages chỉ có
-        # [system, user]. Truy xuất đúng đoạn rồi mà model vẫn không biết "dấu hiệu thứ hai"
-        # là thứ hai của cái gì thì câu trả lời vẫn hỏng.
         cau_hoi_cho_llm = cau_hoi
         ngu_canh_hoi_thoai = truy_van.get("ngu_canh_llm") or ""
 
@@ -1430,10 +876,6 @@ class RagPipeline:
 
         cau_tra_loi = "".join(cac_manh).strip()
 
-        # ĐỐI CHIẾU CHÉO CÁC NGUỒN - chạy SAU khi câu trả lời đã hiện xong, có chủ đích:
-        # nó không đổi câu trả lời, chỉ thêm một lớp cảnh báo, nên không có lý do gì bắt
-        # người dùng chờ nó trước khi được đọc chữ đầu tiên. Tầng lọc tất định bên trong
-        # khiến đại đa số lượt hỏi không tốn lượt LLM nào (xem rag/doi_chieu_nguon.py).
         if doi_chieu is None:
             doi_chieu = config.BAT_DOI_CHIEU_NGUON
         cac_mau_thuan: List[Dict] = []
@@ -1453,28 +895,11 @@ class RagPipeline:
                 "cau_tra_loi": cau_tra_loi,
                 "cac_chunk_nguon": cac_chunk,
                 "la_kiem_chung": la_cau_hoi_kiem_chung(cau_hoi_cho_llm),
-                # Bản viết lại của câu hỏi nối tiếp (nếu có). Giao diện PHẢI hiện nó ra chứ
-                # không được im lặng dùng: đây là một phỏng đoán của hệ thống về ý người
-                # dùng, và trình bày phỏng đoán như thể là sự thật đúng là lỗi mà §5.54 đã
-                # phải sửa một lần rồi. Người dùng thấy được thì họ tự sửa câu hỏi khi hệ
-                # thống hiểu sai.
                 "truy_van": truy_van,
-                # Các cặp nguồn nói ngược nhau. Danh sách rỗng là kết quả bình thường.
                 "mau_thuan": cac_mau_thuan,
-                # Tỉ lệ câu trả lời trùng NGUYÊN VĂN với ngữ cảnh đã truy xuất. Tính ngay ở
-                # đây (tất định, mili giây, không gọi model) để giao diện nói được với người
-                # đọc mức độ bám nguồn của câu trả lời họ đang xem - thay vì bắt họ tự mở
-                # từng đoạn trích ra đối chiếu.
-                #
-                # ĐỌC CHO ĐÚNG: cao = bằng chứng mạnh rằng KHÔNG bịa; thấp thì KHÔNG kết
-                # luận được gì, vì diễn đạt lại bằng lời của mình cũng cho điểm thấp. Vì thế
-                # con số này TUYỆT ĐỐI không được dùng để tự động từ chối một câu trả lời -
-                # làm vậy sẽ giết đúng những câu trả lời viết tốt nhất.
                 "bam_nguon": do_bam_ngu_canh(
                     cau_tra_loi, "\n\n".join(c["noidung"] for c in cac_chunk)
                 ) if cac_chunk else 0.0,
-                # Số liệu độ trễ đi kèm luôn kết quả: đây là thứ cần đo được để nói về UX
-                # bằng con số ("chữ đầu tiên sau 2,8 giây") thay vì bằng cảm nhận.
                 "do_tre": {
                     "truy_xuat": giay_truy_xuat,
                     "hien_dau_tien": giay_hien_dau_tien,
@@ -1492,11 +917,7 @@ class RagPipeline:
         lich_su: Optional[List[Dict]] = None,
         doi_chieu: Optional[bool] = None,
     ) -> Dict:
-        """Chạy trọn luồng Query: truy xuất -> sinh câu trả lời.
-
-        Trả về dict {"cau_tra_loi", "cac_chunk_nguon", "la_kiem_chung", "truy_van",
-        "mau_thuan", "bam_nguon", "do_tre"} để app.py hiển thị mọi thứ từ cùng 1 lần gọi.
-        """
+        """Chạy trọn luồng Query: truy xuất -> sinh câu trả lời."""
         for su_kien in self.hoi_dap_theo_luong(
             cau_hoi,
             top_k=top_k,

@@ -1,16 +1,5 @@
 """Test KHÁI QUÁT: các cơ chế mới phải đúng trên mọi hình dạng tài liệu, không chỉ trên
-bộ tài liệu đã dùng để phát hiện ra lỗi.
-
-Lý do có file này tách khỏi test_do_tin_cay_thuoc_do.py: hai cơ chế được thêm gần đây (đọc
-lại trang PDF dính chữ, cắt bảng lớn giữ dòng tiêu đề) đều được phát hiện nhờ MỘT tài liệu
-cụ thể — một cuốn sách LaTeX và một biểu mẫu Word. Nguy cơ tự nhiên là chúng được chỉnh cho
-vừa đúng hai tài liệu đó rồi hỏng ở tài liệu khác, mà không ai biết.
-
-Nên các test dưới đây cố ý dựng ra những hình dạng KHÔNG có trong bộ tài liệu test: bảng
-một hàng, bảng tiêu đề dài hơn cả ngân sách, bảng toàn ô rỗng, văn bản tiếng Việt có dấu,
-văn bản toàn công thức, văn bản có từ ghép dài hợp lệ. Yêu cầu chung: hoặc xử lý đúng, hoặc
-suy giảm êm — tuyệt đối không mất nội dung và không tạo chunk vượt giới hạn model.
-"""
+bộ tài liệu đã dùng để phát hiện ra lỗi."""
 
 import sys
 from pathlib import Path
@@ -35,10 +24,6 @@ def _dem_tu(t: str) -> int:
     return len(t.split())
 
 
-# ======================================================================
-# Phát hiện dính chữ: không được báo động giả trên văn bản hợp lệ
-# ======================================================================
-
 @pytest.mark.parametrize(
     "mo_ta, mau",
     [
@@ -58,11 +43,7 @@ def _dem_tu(t: str) -> int:
 )
 def test_khong_bao_dong_gia_dinh_chu(mo_ta, mau):
     """Báo động giả nghĩa là trang đang đọc TỐT bị đem đi đọc lại với tham số hung hăng hơn -
-    tức tự tạo ra lỗi vỡ từ ở nơi vốn không có lỗi nào.
-
-    Nhân mẫu lên cỡ một TRANG thật (~2.000 ký tự) vì đó là thứ hàm này được gọi để đo. Một
-    câu lẻ có tỉ lệ hoàn toàn khác - chính chỗ đó là nguồn báo động giả đã phát hiện được.
-    """
+    tức tự tạo ra lỗi vỡ từ ở nơi vốn không có lỗi nào."""
     assert _ty_le_dinh_chu(mau * 40) < 0.10, mo_ta
 
 
@@ -94,18 +75,7 @@ def test_qua_it_chu_thi_khong_ket_luan_gi(mo_ta, text):
 
 
 def test_bao_dong_gia_van_vo_hai_vi_ban_doc_lai_phai_TOT_HON_moi_duoc_nhan():
-    """Tính chất an toàn quan trọng hơn mọi ngưỡng, nên phải có test riêng.
-
-    Không ngưỡng nào đúng cho mọi tài liệu trên đời - một trang toàn từ ghép rất dài (thuật
-    ngữ hoá học, tiếng Đức) vẫn có thể bị nghi oan là dính chữ. Điều khiến cơ chế này an
-    toàn KHÔNG phải là ngưỡng chọn khéo, mà là: bản đọc lại chỉ được nhận khi nó ĐO ĐƯỢC là
-    đỡ dính hơn VÀ không làm vỡ từ thêm. Trang không thật sự dính thì không tham số nào làm
-    nó "đỡ dính" được, nên bản gốc luôn được giữ - báo động giả chỉ tốn thêm vài lần đọc,
-    không bao giờ làm hỏng nội dung.
-
-    Dựng một trang giả lập trả về CÙNG một văn bản với mọi x_tolerance (đúng hành vi của
-    trang không có vấn đề về khoảng cách chữ) và kiểm tra kết quả không đổi.
-    """
+    """Tính chất an toàn quan trọng hơn mọi ngưỡng, nên phải có test riêng."""
     van_ban = ("Deoxyribonucleicacidsequencing and electroencephalographically "
                "measured responses were analysed carefully. ") * 30
 
@@ -132,10 +102,6 @@ def test_ty_le_tu_le_bat_duoc_van_ban_bi_vo_tu():
     assert _ty_le_tu_le(vo_vun) > 0.8
 
 
-# ======================================================================
-# Bảng: mọi hình dạng đều phải xử lý được, không mất nội dung
-# ======================================================================
-
 def _khoi(cac_dong):
     return "\n".join([MOC_BANG_MO, *cac_dong, MOC_BANG_DONG])
 
@@ -153,9 +119,8 @@ def _khoi(cac_dong):
     ],
 )
 def test_cat_bang_khong_lam_mat_noi_dung(mo_ta, cac_dong):
-    """Bất kể hình dạng nào: mọi ô có chữ trong bảng gốc phải còn tìm thấy được sau khi cắt.
-    Mất nội dung ở đây là mất âm thầm - không có lỗi nào báo ra, chỉ là câu hỏi về ô đó
-    vĩnh viễn không tra được nữa."""
+    """Mọi ô có chữ trong bảng gốc phải còn tìm thấy được sau khi cắt - mất nội dung ở đây là
+    mất âm thầm, không có lỗi nào báo ra."""
     khoi = _khoi(cac_dong)
     cac_manh = _cat_bang_giu_tieu_de(khoi, dem=_dem_tu, tran=12)
     gop = "\n".join(m for m, _ in cac_manh)
@@ -167,9 +132,8 @@ def test_cat_bang_khong_lam_mat_noi_dung(mo_ta, cac_dong):
 
 
 def test_tieu_de_dai_hon_ngan_sach_khong_gay_lap_vo_han():
-    """Nếu dòng tiêu đề tự nó đã hết ngân sách, lặp lại nó ở từng mảnh sẽ đẩy MỌI hàng dữ
-    liệu ra ngoài. Phải nhận ra và lùi về cách cắt cũ, thay vì sinh ra một loạt mảnh chỉ
-    chứa tiêu đề."""
+    """Khi dòng tiêu đề tự nó đã hết ngân sách thì phải lùi về cách cắt cũ, thay vì sinh ra một
+    loạt mảnh chỉ chứa tiêu đề."""
     tieu_de = "| " + " | ".join(f"Tên cột rất dài số {i}" for i in range(10)) + " |"
     khoi = _khoi([tieu_de, "| " + " | ".join(["---"] * 10) + " |",
                   "| " + " | ".join(str(i) for i in range(10)) + " |"])
@@ -179,9 +143,8 @@ def test_tieu_de_dai_hon_ngan_sach_khong_gay_lap_vo_han():
 
 
 def test_khong_chunk_nao_vuot_gioi_han_model_du_bang_hinh_dang_nao():
-    """Ràng buộc CỨNG của cả hệ thống: chunk vượt max_seq_length bị model cắt ÂM THẦM lúc
-    encode, nên phần cuối không bao giờ tra được. Bảng là chỗ dễ vi phạm nhất vì nó được ưu
-    tiên giữ nguyên khối."""
+    """Ràng buộc cứng: không chunk nào được vượt max_seq_length, vì phần vượt bị model cắt âm
+    thầm lúc encode nên không bao giờ tra được."""
     tieu_de_dai = "| " + " | ".join(f"Cột có tên dài dòng số {i}" for i in range(12)) + " |"
     cac_trang = [
         {"nguon": "a.docx", "trang": 1, "noidung": _khoi(
@@ -211,10 +174,6 @@ def test_bang_vua_gioi_han_van_duoc_giu_nguyen_khoi():
     assert "| 1 | 2 |" in cac_bang[0]["noidung"] and "| 3 | 4 |" in cac_bang[0]["noidung"]
 
 
-# ======================================================================
-# Bỏ cột rỗng: phải giữ nguyên dữ liệu, chỉ bỏ cột KHÔNG có gì
-# ======================================================================
-
 def test_chi_bo_cot_rong_o_moi_hang():
     bang = [["A", "", "B", ""], ["1", "", "2", ""], ["3", "", "4", ""]]
     md = _bang_sang_markdown(bang)
@@ -234,10 +193,6 @@ def test_bang_toan_o_rong_khong_gay_loi():
     assert _bang_sang_markdown([["", ""], ["", ""]]) == ""
     assert _bang_sang_markdown([]) == ""
 
-
-# ======================================================================
-# Bố cục NHIỀU CỘT — đọc ngang trang 2 cột sẽ trộn câu của hai cột
-# ======================================================================
 
 def _tao_pdf_hai_cot(duong_dan):
     """Dựng một PDF 2 cột thật bằng reportlab (đã là dependency của evaluation)."""
@@ -265,9 +220,8 @@ def _tao_pdf_hai_cot(duong_dan):
 
 
 def test_trang_hai_cot_khong_bi_tron_cau_cua_hai_cot(tmp_path, monkeypatch):
-    """Đây là hỏng ngay từ khâu đọc: pdfplumber đọc theo dòng ngang suốt bề ngang trang, nên
-    câu của cột trái bị nối thẳng vào câu của cột phải. Mọi chunk sinh ra đều vô nghĩa, và
-    không có dấu hiệu nào để nhận ra ngoài việc câu trả lời lộn xộn."""
+    """Trang 2 cột đọc theo dòng ngang sẽ nối câu của cột trái vào câu của cột phải, khiến mọi
+    chunk sinh ra đều vô nghĩa."""
     import config
     from rag.document_loader import doc_pdf
 
@@ -284,9 +238,8 @@ def test_trang_hai_cot_khong_bi_tron_cau_cua_hai_cot(tmp_path, monkeypatch):
 
 
 def test_trang_mot_cot_khong_bi_nhan_nham_thanh_nhieu_cot(tmp_path, monkeypatch):
-    """Chốt an toàn quan trọng hơn: nhận nhầm trang 1 cột thành 2 cột sẽ CẮT ĐÔI một tài liệu
-    vốn đang đọc tốt. Bản dò đầu tiên thiếu chốt này đã nhận nhầm 100% số trang của một giáo
-    trình thật, vì nó tưởng LỀ TRANG là rãnh giữa cột."""
+    """Nhận nhầm trang 1 cột thành 2 cột sẽ cắt đôi một tài liệu vốn đang đọc tốt, nên cần chốt
+    an toàn để không tưởng lề trang là rãnh giữa cột."""
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfgen import canvas
 
@@ -309,14 +262,9 @@ def test_trang_mot_cot_khong_bi_nhan_nham_thanh_nhieu_cot(tmp_path, monkeypatch)
         assert _cac_cot_cua_trang(pdf.pages[0]) == [], "trang 1 cột bị nhận nhầm thành nhiều cột"
 
 
-# ======================================================================
-# TEXT BOX trong DOCX — python-docx không thấy, nội dung mất hẳn
-# ======================================================================
-
 def test_noi_dung_trong_text_box_docx_khong_bi_mat(tmp_path, monkeypatch):
-    """Trong Word, sơ đồ / khung "Lưu ý" / trích dẫn nổi bật hay nằm trong text box - và đó
-    thường là chỗ cô đọng nhất của trang. `Paragraph.text` của python-docx trả về chuỗi rỗng
-    cho chúng, nên nội dung biến mất khỏi index mà không có dấu hiệu gì."""
+    """Nội dung trong text box của DOCX phải được lấy riêng, vì Paragraph.text của python-docx
+    trả về chuỗi rỗng cho chúng."""
     from docx import Document
     from docx.oxml import parse_xml
 
@@ -336,7 +284,6 @@ def test_noi_dung_trong_text_box_docx_khong_bi_mat(tmp_path, monkeypatch):
     f = tmp_path / "co_text_box.docx"
     d.save(f)
 
-    # python-docx tự nó KHÔNG thấy nội dung này - đó là lý do phải tự dò XML.
     assert all("ba buoc" not in p.text for p in Document(f).paragraphs)
 
     noidung = doc_docx(f)[0]["noidung"]

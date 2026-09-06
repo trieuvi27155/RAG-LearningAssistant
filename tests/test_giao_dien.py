@@ -1,20 +1,4 @@
-"""Test cho GIAO DIỆN (app.py), chạy bằng AppTest của chính Streamlit.
-
-Vì sao cần: app.py là "composition root" - nơi duy nhất mọi module rag/* được ghép lại, và
-là nơi giữ toàn bộ trạng thái phiên. Nhưng nó cũng là phần DUY NHẤT của hệ thống trước nay
-không có test nào: mọi lỗi ở đây chỉ lộ ra khi có người mở trình duyệt lên bấm thử.
-
-Bố cục vừa được viết lại (§5.47) nên rủi ro cao nhất nằm đúng ở những chỗ khó thấy bằng mắt:
-  - luồng hỏi-đáp 2 nhịp (đặt câu hỏi -> rerun -> mới gọi LLM). Đây là cơ chế chống việc một
-    cú bấm bất kỳ huỷ ngang lần chạy đang gọi Ollama (bug đã gặp thực tế). Nhìn màn hình
-    không thể biết nó còn đúng hay không.
-  - trích dẫn phải nằm TRONG từng tin nhắn, không dùng biến dùng chung (bug lệch pha đã gặp).
-  - hai lối đặt câu hỏi (ô nhập và nút gợi ý) phải đi đúng một đường mã.
-
-AppTest chạy thẳng script Streamlit trong tiến trình, không cần trình duyệt - nên test này
-nhanh, tất định, và chạy được trong CI. LLM và model embedding đều được thay bằng đồ giả:
-thứ cần kiểm ở đây là LUỒNG GIAO DIỆN, không phải chất lượng câu trả lời.
-"""
+"""Test cho GIAO DIỆN (app.py), chạy bằng AppTest của chính Streamlit."""
 
 import sys
 from pathlib import Path
@@ -49,9 +33,8 @@ class _EmbeddingGia:
         return lambda t: len(t.split())
 
     def chuyen_thiet_bi(self, moi):
-        """Có mặt để khớp interface thật của EmbeddingService (rag/tai_nguyen_gpu.py gọi tới
-        ở ranh giới giai đoạn). Test double thiếu method này thì lỗi lệch interface sẽ hiện
-        ra dưới dạng AttributeError giữa luồng build, chứ không phải một test đỏ rõ ràng."""
+        """Có mặt để khớp interface thật của EmbeddingService, tránh lỗi lệch interface chỉ lộ ra
+        dưới dạng AttributeError giữa luồng build."""
         self.thiet_bi = moi
         return False
 
@@ -108,7 +91,7 @@ class _PipelineHong:
     def hoi_dap_theo_luong(self, cau_hoi, top_k=None, nguon_cho_phep=None,
                            lich_su=None, doi_chieu=None):
         raise self.loi
-        yield  # pragma: no cover - chỉ để hàm này là generator
+        yield  # pragma: no cover
 
 
 class _StoreGia:
@@ -126,9 +109,6 @@ def app(monkeypatch, tmp_path):
     (thu_muc / "phapluat.pdf").write_bytes(b"%PDF-1.4 noi dung gia")
     monkeypatch.setattr(config, "RAW_DOCS_DIR", thu_muc)
 
-    # Thanh bên có kiểm tra máy chủ Ollama trước khi người dùng kịp hỏi. Test giao diện
-    # không được phụ thuộc vào việc máy chạy test có bật Ollama hay không, nên cắt hẳn lời
-    # gọi ra ngoài (kiểm tra đó có test riêng ở test_ket_noi_ollama.py).
     monkeypatch.setattr("rag.rag_pipeline.kiem_tra_may_chu_llm", lambda: None)
     st.cache_data.clear()
 
@@ -140,10 +120,6 @@ def app(monkeypatch, tmp_path):
     at.pipeline_gia = pipeline_gia
     return at
 
-
-# ======================================================================
-# Bố cục: thanh bên có đủ phần quản lý nguồn, khung chính có ô nhập
-# ======================================================================
 
 def test_thanh_ben_co_du_phan_quan_ly_nguon(app):
     at = app.run()
@@ -159,14 +135,9 @@ def test_thanh_ben_co_du_phan_quan_ly_nguon(app):
 def test_man_hinh_trong_co_goi_y_bam_duoc(app):
     at = app.run()
     assert not at.exception, at.exception
-    # 3 nút gợi ý nằm ở KHUNG CHÍNH (không phải thanh bên).
     nut_chinh = [b for b in at.main.button]
     assert len(nut_chinh) >= 3, f"cần ít nhất 3 gợi ý, đang có {len(nut_chinh)}"
 
-
-# ======================================================================
-# Luồng hỏi-đáp 2 nhịp
-# ======================================================================
 
 def test_dat_cau_hoi_khong_goi_llm_ngay_o_nhip_dau(app):
     """Nhịp 1 chỉ được ghi câu hỏi vào state rồi rerun. Nếu gọi LLM ngay tại đây thì một cú
@@ -218,14 +189,9 @@ def test_hoi_thoai_moi_xoa_lich_su_nhung_giu_index(app):
     assert at.session_state["vector_store"] is not None, "index tuyệt đối không được mất"
 
 
-# ======================================================================
-# Lỗi ở bước gọi LLM không được khoá cứng cả phiên làm việc
-# ======================================================================
-
 def test_loi_khi_sinh_cau_tra_loi_khong_lam_treo_giao_dien(app):
-    """Đây là hậu quả THẬT của việc app.py không bắt lỗi: dang_xu_ly kẹt ở True, nên ô nhập
-    và mọi nút vẫn disabled - người dùng không làm được gì nữa kể cả sau khi đã bật Ollama
-    lên, cho tới lúc tự tải lại trang. Một lỗi hạ tầng tạm thời hoá ra làm hỏng cả phiên."""
+    """Lỗi lúc sinh câu trả lời không được để dang_xu_ly kẹt ở True, vì khi đó ô nhập và mọi nút
+    vẫn disabled cho tới lúc người dùng tự tải lại trang."""
     app.session_state["pipeline"] = _PipelineHong()
     at = app.run()
     at.chat_input[0].set_value("Nhà nước có đặc điểm gì?").run()
@@ -263,21 +229,14 @@ def test_loi_la_khong_bi_nuot_im_lang(app):
 
 def test_so_trich_dan_khong_hien_len_man_hinh(app):
     """Số [n] là thứ tự đoạn trích TRONG PROMPT - một thứ tự người đọc không nhìn thấy nên
-    cũng không tra ngược được. Hiện ra chỉ thêm nhiễu.
-
-    Nhưng chúng PHẢI còn nguyên trong dữ liệu: đó là căn cứ để loc_theo_tham_chieu() biết câu
-    trả lời dùng nguồn nào, và để metrics.do_chinh_xac_trich_dan() chấm Citation accuracy.
-    Test khoá lại cả hai vế cùng lúc - gỡ số khỏi dữ liệu thay vì khỏi hiển thị sẽ phá đúng
-    thứ mà các con số này sinh ra để phục vụ, mà không có lỗi nào báo ra."""
+    cũng không tra ngược được. Hiện ra chỉ thêm nhiễu."""
     at = app.run()
     at.chat_input[0].set_value("Nhà nước có đặc điểm gì?").run()
 
-    # Vế 1: không còn số nào trên màn hình.
     van_ban_hien = " ".join(m.value for m in at.markdown)
     assert "[1]" not in van_ban_hien
     assert "quyền lực công cộng đặc biệt." in van_ban_hien, "nội dung phải còn nguyên"
 
-    # Vế 2: dữ liệu gốc vẫn giữ số, và trích dẫn vẫn chọn được nguồn nhờ chính số đó.
     tin_nhan = at.session_state["messages"][1]
     assert "[1]" in tin_nhan["content"]
     assert tin_nhan["trich_dan"][0]["nguon"] == "phapluat.pdf"

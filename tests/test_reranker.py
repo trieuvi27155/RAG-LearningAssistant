@@ -1,11 +1,4 @@
-"""Test cho tầng xếp hạng lại bằng cross-encoder.
-
-Chia 2 loại theo đúng quy ước sẵn có của bộ test:
-  - Test LOGIC (RerankerGia, điểm dựng tay): kiểm việc xếp lại thứ tự có đúng không, chạy
-    trong mili giây, không nạp model nào.
-  - Test MODEL THẬT (1 ca duy nhất): kiểm chính bản thân model có phân biệt được liên quan
-    và lạc đề không - thứ chỉ model thật mới trả lời được.
-"""
+"""Test cho tầng xếp hạng lại bằng cross-encoder."""
 
 import sys
 from pathlib import Path
@@ -73,7 +66,6 @@ def test_rerank_keo_dung_doan_len_dau():
         _chunk("a.pdf", 1, 0, "Thư viện số là hệ thống lưu trữ tài liệu điện tử nói chung."),
         _chunk("a.pdf", 2, 0, "Phí phạt mỗi ngày với tạp chí đóng tập là 5.000 đồng."),
     ]
-    # Vector cố tình xếp đoạn CHUNG CHUNG (chunk 0) lên trước đoạn đúng chi tiết (chunk 1).
     cac_vector = [_vector_don_vi(0), [0.9, 0.44, 0.0, 0.0]]
     store = _tao_store(cac_chunk, cac_vector)
 
@@ -87,9 +79,8 @@ def test_rerank_keo_dung_doan_len_dau():
 
 
 def test_rerank_khong_doi_diem_similarity():
-    """Rerank chỉ đổi THỨ TỰ, không đổi điểm công bố. Nếu điểm rerank lọt vào
-    diem_similarity thì sàn NGUONG_DIEM_TOI_THIEU và điểm hiển thị trên UI sẽ nằm ở 2 thang
-    đo khác nhau - kiểu lỗi rất khó lần ra vì không có gì báo lỗi."""
+    """Rerank chỉ đổi thứ tự, không đổi diem_similarity - nếu không, sàn NGUONG_DIEM_TOI_THIEU và
+    điểm hiển thị trên UI sẽ nằm ở 2 thang đo khác nhau."""
     cac_chunk = [_chunk("a.pdf", 1, 0, "Nội dung có từ khoá đặc biệt ở đây.")]
     store = _tao_store(cac_chunk, [_vector_don_vi(0)])
 
@@ -97,7 +88,6 @@ def test_rerank_khong_doi_diem_similarity():
         EmbeddingGia(_vector_don_vi(0)), store, reranker_service=RerankerGia("đặc biệt")
     ).truy_xuat("câu hỏi", top_k=1)
 
-    # Cosine của 2 vector đơn vị trùng nhau = 1.0, không phải 9.0 của RerankerGia.
     assert ket_qua[0]["diem_similarity"] == pytest.approx(1.0, abs=1e-5)
 
 
@@ -110,13 +100,9 @@ def test_khong_co_reranker_thi_pipeline_van_chay():
 
 
 def test_chi_rerank_toi_da_so_ung_vien_cau_hinh(monkeypatch):
-    """Trần SO_UNG_VIEN_RERANK là thứ giữ chi phí ở mức chấp nhận được: mỗi ứng viên vượt
-    trần đều là một lượt chạy model thật. Phần đuôi phải được GIỮ LẠI (không cắt bỏ) để các
-    bước lọc sau vẫn đủ ứng viên lấp TOP_K."""
+    """Chỉ rerank tối đa SO_UNG_VIEN_RERANK ứng viên để giữ chi phí, phần đuôi vượt trần phải
+    được giữ lại chứ không cắt bỏ."""
     monkeypatch.setattr(config, "SO_UNG_VIEN_RERANK", 2)
-    # Tắt mở rộng xuyên trang: mỗi chunk ở đây nằm một trang riêng, để bật thì các đoạn
-    # trích liền kề nhập vào nhau và số đoạn trả về giảm đi - đúng hành vi mong muốn của
-    # tính năng đó, nhưng nó che mất thứ test này đang kiểm (phần đuôi ngoài trần rerank).
     monkeypatch.setattr(config, "MO_RONG_QUA_RANH_GIOI_TRANG", False)
     cac_chunk = [_chunk("a.pdf", i + 1, 0, f"Đoạn nội dung số {i} đủ dài để không bị lọc bỏ.")
                  for i in range(5)]

@@ -1,22 +1,4 @@
-"""Wrapper cho FAISS - build, lưu, load, tìm kiếm (vector + từ khoá).
-
-Dùng IndexFlatIP (inner product) thay vì IndexFlatL2 (khoảng cách Euclid) vì vector
-embedding đã được chuẩn hóa (normalize) ở embedding.py - với vector đã chuẩn hóa,
-inner product == cosine similarity, đúng thước đo "độ liên quan ngữ nghĩa" mà đồ án cần,
-thay vì khoảng cách hình học thô giữa 2 điểm.
-
-FAISS tự nó chỉ lưu vector (số), không lưu được metadata dạng text (tên file, số trang,
-nội dung gốc...). Vì vậy cần thêm 1 list `metadata` song song: vị trí i trong metadata
-tương ứng với vector thứ i đã add vào index, lưu riêng bằng pickle.
-
-Ngoài chỉ mục vector, class này còn giữ 3 cấu trúc phụ được dựng LƯỜI (chỉ tính khi cần
-lần đầu, sau đó dùng lại) và tự huỷ mỗi khi dữ liệu đổi:
-  - chỉ mục (nguồn, trang) -> vị trí các chunk: để mở rộng ngữ cảnh sang chunk liền kề mà
-    không phải quét tuyến tính toàn bộ metadata cho từng trang, từng câu hỏi.
-  - chỉ mục nguồn -> vị trí các chunk theo thứ tự đọc: cùng mục đích nhưng XUYÊN TRANG, cho
-    tài liệu văn bản chảy liên tục (xem chi_muc_nguon).
-  - chỉ mục BM25: nhánh tìm kiếm theo từ khoá (xem rag/lexical_search.py).
-"""
+"""Wrapper cho FAISS - build, lưu, load, tìm kiếm (vector + từ khoá)."""
 
 import json
 import logging
@@ -37,21 +19,7 @@ logger = logging.getLogger(__name__)
 def so_sanh_bam_tai_lieu(
     bam_trong_index: Dict[str, str], bam_tren_dia: Dict[str, str]
 ) -> Tuple[List[str], List[str], List[str]]:
-    """So sổ băm của index với thực tế thư mục -> (cần đọc lại, cần xoá, giữ nguyên).
-
-    Tách thành hàm THUẦN (chỉ nhận hai dict, không đụng đĩa, không đụng FAISS) có chủ đích:
-    đây là phần quyết định của build tăng dần, và một quyết định sai ở đây không gây lỗi mà
-    chỉ khiến index thiếu hoặc thừa một tài liệu - đúng loại hỏng im lặng chỉ lộ ra qua chất
-    lượng câu trả lời. Hàm thuần thì kiểm được bằng test bảng, không cần dựng cả một lần build.
-
-      - cần đọc lại: file mới, hoặc băm khác với băm đã ghi lúc build.
-      - cần xoá:     tên còn trong sổ băm nhưng file đã biến mất khỏi thư mục. Không gỡ thì
-                     hệ thống vẫn trả lời bằng một tài liệu người dùng tưởng đã xoá.
-      - giữ nguyên:  băm khớp -> vector cũ vẫn đúng, không đụng tới.
-
-    Thứ tự trả về giữ nguyên thứ tự của `bam_tren_dia` để lần build sau xử lý tài liệu theo
-    đúng thứ tự người dùng nhìn thấy trên giao diện.
-    """
+    """So sổ băm của index với thực tế thư mục -> (cần đọc lại, cần xoá, giữ nguyên)."""
     can_doc, giu_nguyen = [], []
     for ten, bam in bam_tren_dia.items():
         (giu_nguyen if bam_trong_index.get(ten) == bam else can_doc).append(ten)
@@ -64,20 +32,12 @@ class VectorStore:
         self.index = faiss.IndexFlatIP(dimension)
         self.metadata: List[Dict] = []
         self.thong_tin: Dict = {}
-        # {tên file: băm nội dung} của các tài liệu đang có trong index. Luồng build tăng
-        # dần (app.py) đọc dict này để biết tài liệu nào đã đổi; luu() ghi nó xuống
-        # index_info.json để nó sống qua các lần mở app.
         self.bam_tai_lieu: Dict[str, str] = {}
         self._xoa_cache()
 
-    # ------------------------------------------------------------------
-    # Cấu trúc phụ dựng lười
-    # ------------------------------------------------------------------
     def _xoa_cache(self) -> None:
-        """Gọi sau MỌI thay đổi dữ liệu. Chỉ mục trang và BM25 đều ánh xạ theo vị trí trong
-        self.metadata, mà thêm/xoá vector làm các vị trí đó dịch đi - giữ lại cache cũ sẽ
-        khiến tìm kiếm trả về nội dung của chunk khác (sai âm thầm, không báo lỗi).
-        """
+        """Xoá cache chỉ mục trang và BM25 - gọi sau MỌI thay đổi dữ liệu vì vị trí trong
+        self.metadata bị dịch đi."""
         self._chi_muc_trang: Optional[Dict[Tuple[str, int], List[int]]] = None
         self._chi_muc_nguon: Optional[Dict[str, List[int]]] = None
         self._bm25: Optional[BM25] = None
@@ -97,19 +57,7 @@ class VectorStore:
 
     @property
     def chi_muc_nguon(self) -> Dict[str, List[int]]:
-        """nguon -> vị trí MỌI chunk của tài liệu đó, đã sắp theo thứ tự đọc trong tài liệu.
-
-        Bổ sung cho chi_muc_trang, phục vụ việc mở rộng ngữ cảnh QUA ranh giới trang: với
-        PDF văn bản chảy liên tục, một định nghĩa bắt đầu cuối trang 12 và kết thúc đầu
-        trang 13 chỉ nối lại được khi có một thứ tự đọc xuyên trang (xem
-        config.MO_RONG_QUA_RANH_GIOI_TRANG).
-
-        Thứ tự đọc suy ra từ (trang, vi_tri) - HAI trường đã có sẵn trong mọi metadata - chứ
-        KHÔNG thêm một trường "thứ tự toàn cục" mới. Chủ ý: thêm trường mới thì mọi index đã
-        build đều thiếu nó và phải build lại, mà build lại tốn nguyên một lượt chú thích ảnh
-        bằng model vision (~9 phút cho 291 ảnh). Thông tin cần thiết vốn đã nằm trong dữ
-        liệu, không có lý do bắt người dùng trả giá đó để lấy lại đúng thứ mình đang có.
-        """
+        """nguon -> vị trí MỌI chunk của tài liệu đó, đã sắp theo thứ tự đọc trong tài liệu."""
         if self._chi_muc_nguon is None:
             chi_muc: Dict[str, List[int]] = {}
             for i, m in enumerate(self.metadata):
@@ -126,9 +74,6 @@ class VectorStore:
             self._bm25 = BM25([m["noidung"] for m in self.metadata])
         return self._bm25
 
-    # ------------------------------------------------------------------
-    # Ghi dữ liệu
-    # ------------------------------------------------------------------
     def them(self, vectors: np.ndarray, metadata_list: List[Dict]) -> None:
         """Thêm 1 batch vector + metadata tương ứng vào index."""
         if len(vectors) != len(metadata_list):
@@ -140,19 +85,8 @@ class VectorStore:
         self._xoa_cache()
 
     def xoa_theo_nguon(self, ten_file: str) -> int:
-        """Xóa toàn bộ vector + metadata thuộc về 1 file khỏi index NGAY LẬP TỨC, không
-        cần build lại từ đầu như §5.10 (quyết định đó chỉ áp dụng khi THÊM tài liệu mới -
-        xóa 1 file không có lý do gì phải tính toán lại toàn bộ corpus còn lại).
-
-        IndexFlatIP lưu vector trong 1 mảng liền; remove_ids nén mảng lại (dồn các vector
-        còn lại lên, GIỮ NGUYÊN thứ tự tương đối - đã kiểm chứng bằng test thủ công) - nên
-        metadata cũng phải xóa đúng các vị trí tương ứng theo thứ tự GIẢM DẦN (xoá từ cuối
-        lên) để không bị lệch chỉ số khi xoá nhiều phần tử liên tiếp bằng del.
-
-        Trả về số vector đã xóa (0 nếu file không có trong index).
-        """
-        # Xoá luôn khỏi sổ băm: một tài liệu không còn vector nào trong index mà vẫn
-        # được ghi là "đã xử lý" sẽ khiến lần build sau bỏ qua nó và index thiếu im lặng.
+        """Xóa toàn bộ vector + metadata thuộc về 1 file khỏi index ngay lập tức.
+        Trả về số vector đã xóa (0 nếu file không có trong index)."""
         self.bam_tai_lieu.pop(ten_file, None)
         vi_tri_xoa = [i for i, m in enumerate(self.metadata) if m["nguon"] == ten_file]
         if not vi_tri_xoa:
@@ -163,34 +97,21 @@ class VectorStore:
         self._xoa_cache()
         return len(vi_tri_xoa)
 
-    # ------------------------------------------------------------------
-    # Truy vấn
-    # ------------------------------------------------------------------
     def theo_nguon_va_trang(self, nguon: str, trang: int) -> List[Dict]:
         """Toàn bộ chunk của đúng 1 (nguon, trang), đã sắp theo thứ tự trong trang gốc."""
         return [self.metadata[i] for i in self.chi_muc_trang.get((nguon, trang), [])]
 
     def tim_kiem_vi_tri(self, vector_cau_hoi: np.ndarray, top_k: int = None) -> List[Tuple[int, float]]:
-        """Như tim_kiem() nhưng trả về VỊ TRÍ trong metadata thay vì bản thân metadata.
-
-        rag_pipeline cần vị trí (không phải nội dung) để hợp nhất kết quả với nhánh BM25 và
-        để tra ra chunk liền kề - dùng dict metadata làm khoá thì không được (dict không
-        hash được, và 2 chunk trùng nội dung sẽ lẫn vào nhau).
-        """
+        """Như tim_kiem() nhưng trả về VỊ TRÍ trong metadata thay vì bản thân metadata."""
         top_k = top_k or config.TOP_K
-        top_k = min(top_k, self.index.ntotal)  # tránh lỗi khi index có ít hơn top_k vector
+        top_k = min(top_k, self.index.ntotal)
         if top_k <= 0:
             return []
         diem_so, vi_tri = self.index.search(vector_cau_hoi, top_k)
-        # FAISS trả -1 ở ô chỉ số khi không tìm đủ top_k kết quả -> bỏ qua các ô đó.
         return [(int(i), float(d)) for i, d in zip(vi_tri[0], diem_so[0]) if i != -1]
 
     def tim_kiem(self, vector_cau_hoi: np.ndarray, top_k: int = None) -> List[Tuple[Dict, float]]:
-        """Tìm top_k chunk có cosine similarity cao nhất với vector_cau_hoi.
-
-        Trả về list (metadata, diem_similarity), đã sắp xếp giảm dần theo độ liên quan
-        (FAISS tự trả về theo thứ tự này).
-        """
+        """Tìm top_k chunk có cosine similarity cao nhất với vector_cau_hoi."""
         return [(self.metadata[i], diem) for i, diem in self.tim_kiem_vi_tri(vector_cau_hoi, top_k)]
 
     def tim_kiem_tu_khoa(self, cau_hoi: str, top_n: int) -> List[Tuple[int, float]]:
@@ -198,22 +119,12 @@ class VectorStore:
         return self.bm25.tim_kiem(cau_hoi, top_n)
 
     def diem_cosine(self, vi_tri: List[int], vector_cau_hoi: np.ndarray) -> Dict[int, float]:
-        """Tính cosine similarity giữa câu hỏi và các chunk ở những vị trí cho trước.
-
-        Cần cho các chunk chỉ do BM25 tìm ra (không nằm trong top của FAISS nên chưa có
-        điểm cosine): mọi ngưỡng lọc và điểm hiển thị trên UI đều quy về cùng 1 thang đo
-        cosine, nếu để lẫn điểm BM25 (thang đo hoàn toàn khác, không chặn trên) vào thì
-        ngưỡng lọc sẽ vô nghĩa. IndexFlat lưu nguyên vector nên đọc lại được chính xác
-        bằng reconstruct(), không phải tính xấp xỉ.
-        """
+        """Tính cosine similarity giữa câu hỏi và các chunk ở những vị trí cho trước."""
         if not vi_tri:
             return {}
         vector_goc = np.vstack([self.index.reconstruct(int(i)) for i in vi_tri])
         return {i: float(d) for i, d in zip(vi_tri, vector_goc @ vector_cau_hoi[0])}
 
-    # ------------------------------------------------------------------
-    # Lưu / nạp
-    # ------------------------------------------------------------------
     def luu(self, index_path: Path = None, metadata_path: Path = None, info_path: Path = None) -> None:
         index_path = index_path or config.FAISS_INDEX_FILE
         metadata_path = metadata_path or config.METADATA_MAPPING_FILE
@@ -223,19 +134,11 @@ class VectorStore:
         with open(metadata_path, "wb") as f:
             pickle.dump(self.metadata, f)
 
-        # "Vân tay" cấu hình lúc build - xem giải thích ở config.INDEX_INFO_FILE.
         self.thong_tin = {
-            # Băm nội dung của từng tài liệu đã vào index: {tên file: hash}. Đây là thứ cho
-            # phép lần build sau biết tài liệu nào đã đổi mà chỉ xử lý lại đúng những tài
-            # liệu đó (config.BAT_INDEX_TANG_DAN). Ghi theo TÊN FILE vì đó là khoá mà
-            # metadata của chunk đang dùng ("nguon") - có vậy mới xoá được đúng phần cần xoá.
             "bam_tai_lieu": dict(getattr(self, "bam_tai_lieu", {}) or {}),
             "embedding_model": config.EMBEDDING_MODEL_NAME,
             "chunk_size_tokens": config.CHUNK_SIZE_TOKENS,
             "chunk_overlap_tokens": config.CHUNK_OVERLAP_TOKENS,
-            # Các tuỳ chọn ĂN VÀO NỘI DUNG đã index (đổi chúng thì chunk khác đi, phải build
-            # lại). Ghi kèm để ly_do_khong_tuong_thich() phát hiện được - cùng cơ chế đã dùng
-            # cho model embedding, không phát minh cách mới.
             "nhan_dien_tieu_de": config.BAT_NHAN_DIEN_TIEU_DE,
             "trich_anh": config.BAT_TRICH_ANH,
             "chu_thich_anh_vision": config.BAT_CHU_THICH_ANH,
@@ -251,8 +154,6 @@ class VectorStore:
         index_path = index_path or config.FAISS_INDEX_FILE
         metadata_path = metadata_path or config.METADATA_MAPPING_FILE
         info_path = info_path or config.INDEX_INFO_FILE
-        # Dùng __new__ thay vì __init__ để tránh tạo 1 IndexFlatIP rỗng rồi bỏ đi ngay -
-        # index thật sẽ được đọc trực tiếp từ file bằng faiss.read_index.
         obj = cls.__new__(cls)
         obj.index = faiss.read_index(str(index_path))
         with open(metadata_path, "rb") as f:
@@ -264,21 +165,12 @@ class VectorStore:
                 obj.thong_tin = json.loads(Path(info_path).read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
                 logger.warning("Không đọc được %s - bỏ qua kiểm tra tương thích index.", info_path)
-        # Index build bằng bản cũ không có khoá này -> dict rỗng, tức mọi tài liệu bị coi là
-        # "chưa xử lý" và được đọc lại đúng một lần. Giảm cấp về hành vi cũ, không phải lỗi.
         obj.bam_tai_lieu = dict(obj.thong_tin.get("bam_tai_lieu") or {})
         obj._xoa_cache()
         return obj
 
     def ly_do_khong_tuong_thich(self) -> Optional[str]:
-        """Trả về mô tả lý do index trên đĩa không còn khớp cấu hình hiện tại (hoặc None).
-
-        Đây là loại lỗi nguy hiểm vì KHÔNG gây crash: đổi EMBEDDING_MODEL_NAME sang model
-        khác cùng số chiều rồi quên build lại index thì FAISS vẫn chạy bình thường, chỉ có
-        điều vector câu hỏi và vector tài liệu nằm ở 2 không gian ngữ nghĩa khác nhau nên
-        kết quả trả về gần như ngẫu nhiên. Không có cách nào phát hiện qua kết quả (nó vẫn
-        "trông giống" kết quả thật), nên phải đối chiếu bằng vân tay đã ghi lúc build.
-        """
+        """Trả về mô tả lý do index trên đĩa không còn khớp cấu hình hiện tại (hoặc None)."""
         if not self.metadata:
             return None
         if not self.thong_tin:
@@ -298,8 +190,6 @@ class VectorStore:
                 f"Index được build với chunk size {self.thong_tin.get('chunk_size_tokens')} "
                 f"token, khác cấu hình hiện tại ({config.CHUNK_SIZE_TOKENS})."
             )
-        # Chỉ so những tuỳ chọn ĐÃ được ghi lại: index build bằng bản cũ hơn không có các
-        # khoá này, và việc thiếu khoá không có nghĩa là cấu hình khác nhau.
         for khoa, gia_tri_hien_tai, mo_ta in (
             ("nhan_dien_tieu_de", config.BAT_NHAN_DIEN_TIEU_DE, "nhận diện tiêu đề"),
             ("trich_anh", config.BAT_TRICH_ANH, "trích xuất hình ảnh"),

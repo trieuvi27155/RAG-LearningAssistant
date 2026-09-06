@@ -275,6 +275,28 @@ như **không đổi**: in-sample chỉ nhích xuống 0,01–0,014, held-out **
 
 ---
 
+### 4.5 Chất lượng nhãn đáp án — khi nhãn sai làm hỏng mọi kết luận
+
+Mọi con số ở §4 chỉ có nghĩa nếu nhãn trang đúng trong `test_questions.json` là đúng. Lần chạy
+đánh giá **đầu tiên** cho **MRR 0,64** và **Recall@K 0,78** — mức khiến hệ thống trông kém, và
+bước tiếp theo lẽ ra là đi tối ưu tầng truy xuất.
+
+Soi lại thì **nhãn đáp án mới là thứ sai**: chúng trỏ vào trang mục lục / trang mở chương thay
+vì trang có nội dung thật.
+
+| Chỉ số (chỉ đo truy xuất) | Nhãn ban đầu | Nhãn đã kiểm chứng |
+|---|---:|---:|
+| Recall@K | 0,78 | **0,96** |
+| MRR | 0,64 | **0,98** |
+| Đoạn đúng ở hạng 1 | 13/25 | **24/25** |
+
+> **Không có triệu chứng nào phân biệt bảng kết quả sinh ra từ nhãn sai với bảng sinh ra từ
+> nhãn đúng** — cả hai đều là bảng số trông hợp lý. Vì vậy mỗi nhãn phải được kiểm chứng bằng
+> cách mở đúng trang đó ra đọc, chứ không dựa vào trí nhớ về việc nội dung nằm ở đâu.
+> Chi tiết: ARCHITECTURE.md §5.33.
+
+---
+
 ## 5. Kết quả đánh giá đầy đủ (có gọi LLM)
 
 ```bash
@@ -556,6 +578,43 @@ Nhất quán trên cả hai bộ:
 
 ---
 
+### 7.3 Hai tính năng hội thoại — đo riêng
+
+Hai tính năng này không nằm trong bộ câu hỏi chính (§4, §5) nên được đo bằng bộ ca riêng.
+
+**Hiểu câu hỏi nối tiếp** (`python evaluation/kiem_dinh_viet_lai.py --chi-tang-1`) — lấy chính
+kết quả truy xuất của câu hỏi **đầy đủ** làm chuẩn vàng, nhờ vậy chạy được trên bất kỳ corpus
+nào mà không cần gán nhãn tay. Phép đo **tất định**, nên chênh lệch là chênh lệch thật chứ
+không phải dao động của model:
+
+| Câu nối tiếp | Trùng chuẩn vàng (trước → sau) | Điểm rerank (trước → sau) |
+|---|---|---|
+| "Giải thích thêm đi" | 0/4 → **4/4** | 0,0328 → **0,8832** |
+| "Cho ví dụ" | 0/4 → **4/4** | 0,2698 → **0,8324** |
+| "Tell me more" | 0/4 → **4/4** | 0,2055 → **0,8377** |
+| "Cái đó cụ thể là thế nào?" | 1/4 → **4/4** | 0,0219 → **0,8831** |
+| **Tổng** | **1/16 → 16/16** | |
+
+> **Cột đáng lo là cột điểm rerank, không phải cột trùng khớp.** 0,0219 và 0,0328 nằm sát
+> ngưỡng từ chối (`NGUONG_DIEM_RERANK_TOI_THIEU`, §3), tức những câu nối tiếp hoàn toàn hợp lệ
+> đang ở ranh giới **mất hẳn câu trả lời**, chứ không chỉ "lấy nhầm đoạn".
+
+Tầng **nhận diện** câu nối tiếp đạt **10 / 10** trên bộ ca có nhãn.
+
+**Phát hiện mâu thuẫn giữa các nguồn** (`python evaluation/kiem_dinh_doi_chieu.py --so-lan 3`)
+— bộ kiểm định 7 ca, chạy 3 lần:
+
+| Hạng mục | Kết quả |
+|---|---|
+| Chấm đúng | **7 / 7**, ổn định qua cả 3 lần chạy |
+| Trong đó **im lặng đúng** | **3 / 3** — không có báo động giả nào |
+| Tầng lọc tất định | chặn **2 / 3** ca im lặng trước khi tốn lượt gọi LLM nào |
+
+3 trong 7 ca là ca **phải im lặng**, và đó mới là phần khó: bắt mâu thuẫn hiển nhiên thì dễ,
+khó là không báo động trên hai đoạn chỉ bổ sung cho nhau.
+
+---
+
 ## 8. Hiệu năng hệ thống: phần cứng, ingestion và truy vấn
 
 Toàn bộ số liệu mục này đo **trên hệ thống ở trạng thái hiện tại**, bằng hai script trong
@@ -736,6 +795,30 @@ phải một — "chỗ nào tốn nhất" phụ thuộc vào loại tài liệu
 
 ---
 
+### 8.6.1 Phân rã chi phí nạp tài liệu theo bước (profiling)
+
+Sau mỗi lần "Đọc tài liệu", hệ thống in bảng thời gian từng bước kèm số lần gọi và phần trăm
+(`BAT_PROFILING_INGESTION`, mặc định bật). Output **thật** khi đọc giáo trình Bishop
+(758 trang, cache TẮT để đo chi phí gốc):
+
+```
+PROFILING INGESTION (tổng 45,0 s)
+BƯỚC                               SỐ LẦN   TỔNG (s)   TB (ms)      %
+---------------------------------------------------------------------
+pdf_doc_text_trang                    758       39,5      52,1  87,8%
+pdf_trich_anh                           1        4,1    4121,5   9,2%
+pdf_nhan_dien_tieu_de                 758        0,7       1,0   1,6%
+```
+
+Với tài liệu **thuần chữ**, **87,8%** thời gian nằm ở bước đọc text — không phải trích ảnh hay
+nhận diện tiêu đề. Mọi nỗ lực tối ưu hai bước kia đều là tối ưu nhầm chỗ.
+
+Bức tranh **đảo ngược** với hai loại tài liệu khác, và đó là lý do phải đo cả ba chứ không suy
+từ một: tài liệu nhiều hình thì chú thích ảnh chiếm **89,8%** (§8.6), còn tài liệu scan thì OCR
+chiếm gần như toàn bộ (**5,3 giây mỗi trang** trên GPU, §8.5).
+
+---
+
 ### 8.7 Query đầu-cuối
 
 Đo trên index 108 chunk, 5 câu hỏi, có gọi LLM:
@@ -845,6 +928,39 @@ Ghi ra để không ai đọc bảng số ở trên rồi tưởng đã đo đ�
 - **Thời gian sinh câu trả lời**, hiện chiếm khoảng 98% mỗi lượt hỏi. Đường khả dĩ duy nhất
   còn lại là dùng model không sinh suy luận — nhưng đó là đánh đổi chất lượng, phải đo
   Faithfulness và Citation accuracy trước khi chốt.
+
+---
+
+### 8.12 Ngưỡng quy mô chỉ mục FAISS (Flat vs IVF vs HNSW)
+
+`python evaluation/do_quy_mo_index.py` — 768 chiều, k=60, đo phân vị 95 (p95) của từng câu trên
+chính máy làm đồ án:
+
+| Số chunk | FlatIP p95 | FlatIP RAM | HNSW p95 / recall | IVFFlat p95 / recall |
+|---:|---:|---:|---|---|
+| 10.000 | 1,4 ms | 29 MB | 0,8 ms / 0,87 | 0,2 ms / 0,90 |
+| 50.000 | 7,2 ms | 146 MB | 1,2 ms / 0,74 | 1,1 ms / 0,96 |
+| 100.000 | 12,9 ms | 293 MB | 1,5 ms / 0,61 | 1,3 ms / 0,97 |
+
+**Ba kết luận:**
+
+1. **Ngưỡng theo tốc độ: ~1,5 triệu chunk** — mức `IndexFlatIP` chạm ngân sách độ trễ 200 ms.
+   Corpus hiện tại **9.285 chunk** đang ở **~0,6%** ngưỡng đó.
+2. **Ngưỡng thực tế là BỘ NHỚ chứ không phải tốc độ: ~700.000 chunk** (≈2 GB RAM cho index),
+   tức khoảng **145.000 trang** với mật độ chunk của corpus này.
+3. **Khi phải đổi thì chọn `IndexIVFFlat`, KHÔNG phải HNSW.** Ở 100.000 chunk cả hai đều nhanh
+   hơn Flat ~10 lần, nhưng IVF giữ recall **0,97** còn HNSW chỉ **0,61** — và recall của HNSW
+   tụt dần khi corpus to lên nếu giữ nguyên `efSearch`: 0,87 → 0,74 → 0,61.
+
+> **Cách đo có một điểm phải nói ra khi trích vào báo cáo:** vector dùng để đo là vector ngẫu
+> nhiên đã chuẩn hoá, không phải embedding thật. Hợp lệ cho phần **độ trễ** (thời gian nhân ma
+> trận không phụ thuộc nội dung), nhưng làm **recall** của HNSW/IVF bị đo thiệt — vector ngẫu
+> nhiên trong không gian 768 chiều gần như cách đều nhau, tức ca xấu nhất cho mọi thuật toán
+> xấp xỉ. Embedding thật gom cụm theo chủ đề nên recall thực tế sẽ cao hơn: **ngưỡng rút ra là
+> ngưỡng thận trọng.**
+
+Đổi index thì **bắt buộc** chạy lại `run_evaluation.py`: đoạn bị bỏ sót hoàn toàn có thể là
+đoạn chứa câu trả lời. Nhanh hơn mà trả lời sai thì không phải cải tiến.
 
 ---
 

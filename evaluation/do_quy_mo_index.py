@@ -1,38 +1,4 @@
-"""Đo xem `IndexFlatIP` chịu được corpus tới cỡ nào, và chuyển sang IVF/HNSW thì được gì.
-
-VÌ SAO CÓ FILE NÀY
-------------------
-README ghi "có thể mở rộng" - đó là một câu nói suông. `IndexFlatIP` là tìm kiếm VÉT CẠN:
-mỗi câu hỏi nhân vector câu hỏi với TOÀN BỘ ma trận vector trong index, nên thời gian tìm
-kiếm tăng TUYẾN TÍNH theo số chunk. Với corpus của đồ án (5.854 chunk) thì không ai nhận ra,
-nhưng câu hỏi đúng của người phản biện không phải "có mở rộng được không" mà là "ĐẾN BAO
-NHIÊU CHUNK thì phải đổi?".
-
-Script này trả lời bằng số đo trên chính máy đang chạy, thay vì trích một con số từ bài báo
-nào đó. Nó không phải là một phần của hệ thống RAG - chạy tay khi cần lấy số cho báo cáo.
-
-ĐO CÁI GÌ
----------
-Với mỗi cỡ corpus:
-  - IndexFlatIP  : vét cạn, chính xác tuyệt đối (recall@k = 1.0 theo định nghĩa).
-  - IndexHNSWFlat: đồ thị láng giềng, tìm gần đúng - nhanh hơn nhiều, đổi lại có thể bỏ sót.
-  - IndexIVFFlat : chia không gian thành cụm, chỉ quét vài cụm gần nhất - cũng gần đúng.
-Cả ba đo cùng một thứ: thời gian build, độ trễ tìm kiếm (p50/p95), và với 2 loại gần đúng
-thì đo thêm RECALL@K SO VỚI FLAT - tức "so với đáp án chính xác, nó bỏ sót bao nhiêu".
-Recall mới là con số quyết định: một index nhanh gấp 20 lần mà bỏ sót 30% đoạn đúng thì
-không dùng được cho RAG, vì đoạn bị bỏ sót chính là đoạn chứa câu trả lời.
-
-Vector dùng để đo là vector ngẫu nhiên đã chuẩn hoá, KHÔNG phải embedding thật. Điều đó
-hợp lệ cho phần độ trễ (thời gian nhân ma trận không phụ thuộc nội dung), nhưng làm recall
-của HNSW/IVF bị đo THIỆT: vector ngẫu nhiên trong không gian 768 chiều gần như cách đều
-nhau, đây là ca xấu nhất cho mọi thuật toán gần đúng. Embedding thật gom cụm theo chủ đề
-nên recall thực tế sẽ cao hơn con số ở đây - tức ngưỡng rút ra là ngưỡng THẬN TRỌNG.
-
-CÁCH CHẠY
----------
-    python evaluation/do_quy_mo_index.py
-    python evaluation/do_quy_mo_index.py --kich-thuoc 10000,100000,500000
-"""
+"""Đo xem `IndexFlatIP` chịu được corpus tới cỡ nào, và chuyển sang IVF/HNSW thì được gì."""
 
 import argparse
 import sys
@@ -46,15 +12,8 @@ import numpy as np
 
 import config
 
-# Số vector lấy về mỗi lần tìm. Cố ý dùng đúng con số hệ thống thật đang dùng chứ không
-# phải TOP_K: rag_pipeline lấy dư ra rồi mới rerank (xem config.HE_SO_OVER_FETCH và
-# SO_UNG_VIEN_TOI_THIEU), nên đây mới là tải thật đặt lên FAISS.
 K_TIM_KIEM = max(config.TOP_K * config.HE_SO_OVER_FETCH, config.SO_UNG_VIEN_TOI_THIEU)
 
-# Ngân sách độ trễ cho riêng bước tìm vector. Chọn 200ms vì đó là mức mà bước này bắt đầu
-# đáng kể so với phần còn lại của khâu truy xuất (mã hoá câu hỏi ~30ms, rerank ~6 giây):
-# dưới ngưỡng đó, đổi sang index gần đúng chỉ đổi lấy rủi ro bỏ sót mà không ai thấy nhanh
-# hơn; trên ngưỡng đó thì bắt đầu ăn vào thời gian hiện thông báo "đã tìm được N đoạn".
 NGAN_SACH_TIM_KIEM_MS = 200.0
 
 SO_CAU_HOI_DO = 30
@@ -68,23 +27,10 @@ def _so_co_dau_cham(n: int) -> str:
 def _vector_gia_lap(
     so_luong: int, so_chieu: int, seed: int, so_cum: int = 200, do_tuong_dong: float = 0.8
 ) -> np.ndarray:
-    """Vector giả lập ĐÃ CHUẨN HOÁ, có GOM CỤM theo chủ đề như embedding thật.
-
-    Phải gom cụm chứ không được dùng vector ngẫu nhiên thuần: trong không gian 768 chiều,
-    hai vector ngẫu nhiên bất kỳ gần như luôn vuông góc (cosine ≈ 0), nên mọi láng giềng
-    đều xa như nhau - đó là ca XẤU NHẤT cho mọi thuật toán tìm gần đúng. Đo bằng dữ liệu
-    như thế thì HNSW/IVF ra recall thấp thảm hại (đã thử: 0.17) và con số đó không nói gì
-    về hành vi của chúng trên embedding thật, vốn gom thành cụm theo chủ đề với cosine nội
-    cụm khoảng 0.8 (đúng khoảng đã đo được trên corpus của đồ án).
-
-    Cách dựng: mỗi vector = một tâm cụm + nhiễu, với biên độ nhiễu chọn sao cho cosine giữa
-    vector và tâm cụm của nó xấp xỉ `do_tuong_dong`. Phần độ trễ không phụ thuộc điều này
-    (nhân ma trận tốn đúng bấy nhiêu phép tính dù số liệu là gì), nên chỉ recall được lợi.
-    """
+    """Vector giả lập ĐÃ CHUẨN HOÁ, có GOM CỤM theo chủ đề như embedding thật."""
     rng = np.random.default_rng(seed)
     tam_cum = rng.standard_normal((so_cum, so_chieu), dtype="float32")
     faiss.normalize_L2(tam_cum)
-    # cos(v, tâm) ≈ 1/sqrt(1 + sigma²·d)  =>  sigma = sqrt(1/cos² - 1) / sqrt(d)
     sigma = float(np.sqrt(1.0 / do_tuong_dong**2 - 1.0) / np.sqrt(so_chieu))
     thuoc_cum = rng.integers(0, so_cum, size=so_luong)
     v = tam_cum[thuoc_cum] + sigma * rng.standard_normal(
@@ -96,12 +42,7 @@ def _vector_gia_lap(
 
 
 def _do_do_tre(index, cac_cau_hoi: np.ndarray) -> tuple:
-    """Trả về (p50, p95) tính bằng mili giây, đo từng câu hỏi một.
-
-    Đo TỪNG CÂU chứ không đo cả lô rồi chia: hệ thống thật phục vụ mỗi lần một câu hỏi, mà
-    FAISS xử lý lô nhanh hơn hẳn nhờ dùng được BLAS ma trận-ma trận. Chia trung bình từ một
-    lô 30 câu sẽ cho ra con số đẹp hơn thực tế vài lần.
-    """
+    """Trả về (p50, p95) tính bằng mili giây, đo từng câu hỏi một."""
     cac_moc = []
     for i in range(len(cac_cau_hoi)):
         mot_cau = cac_cau_hoi[i : i + 1]
@@ -124,14 +65,11 @@ def _recall_so_voi_flat(index, cac_cau_hoi: np.ndarray, dap_an_flat: np.ndarray)
 def do_mot_kich_thuoc(so_chunk: int, so_chieu: int) -> dict:
     print(f"\n=== {_so_co_dau_cham(so_chunk)} chunk × {so_chieu} chiều ===")
     du_lieu = _vector_gia_lap(so_chunk, so_chieu, seed=1)
-    # Câu hỏi lấy từ CÙNG phân bố cụm (seed khác) - câu hỏi thật cũng rơi vào vùng chủ đề
-    # của tài liệu chứ không phải một điểm ngẫu nhiên trong không gian.
     cac_cau_hoi = _vector_gia_lap(SO_CAU_HOI_DO, so_chieu, seed=2)
     ram_mb = du_lieu.nbytes / 1024 / 1024
 
     ket_qua = {"so_chunk": so_chunk, "ram_mb": ram_mb}
 
-    # --- Flat: đáp án chính xác để mọi index khác được so vào ---
     flat = faiss.IndexFlatIP(so_chieu)
     bat_dau = time.perf_counter()
     flat.add(du_lieu)
@@ -144,7 +82,6 @@ def do_mot_kich_thuoc(so_chunk: int, so_chieu: int) -> dict:
         f"recall 1.000 (theo định nghĩa)  RAM {ram_mb:.0f}MB"
     )
 
-    # --- HNSW ---
     hnsw = faiss.IndexHNSWFlat(so_chieu, 32, faiss.METRIC_INNER_PRODUCT)
     hnsw.hnsw.efConstruction = 200
     bat_dau = time.perf_counter()
@@ -159,7 +96,6 @@ def do_mot_kich_thuoc(so_chunk: int, so_chieu: int) -> dict:
         f"recall {ket_qua['hnsw_recall']:.3f}"
     )
 
-    # --- IVF ---
     nlist = max(int(4 * so_chunk**0.5), 16)
     ivf = faiss.IndexIVFFlat(
         faiss.IndexFlatIP(so_chieu), so_chieu, nlist, faiss.METRIC_INNER_PRODUCT
@@ -184,8 +120,6 @@ def _ket_luan(cac_ket_qua: list, so_chieu: int) -> None:
     print("KẾT LUẬN — ngưỡng cần chuyển khỏi IndexFlatIP")
     print("=" * 78)
 
-    # Vét cạn là O(n) nên độ trễ tỉ lệ thẳng với số chunk: lấy hệ số từ điểm đo LỚN NHẤT
-    # (điểm nhỏ bị chi phí cố định của lời gọi làm sai lệch) rồi ngoại suy tới ngân sách.
     lon_nhat = max(cac_ket_qua, key=lambda k: k["so_chunk"])
     ms_moi_chunk = lon_nhat["flat_p95"] / lon_nhat["so_chunk"]
     nguong = int(NGAN_SACH_TIM_KIEM_MS / ms_moi_chunk)
@@ -214,7 +148,6 @@ def _ket_luan(cac_ket_qua: list, so_chieu: int) -> None:
         "cho index)."
     )
 
-    # So HNSW với IVF: cả hai đều nhanh hơn Flat rất nhiều, nên thứ phân định là RECALL.
     lon_nhat_co_ann = lon_nhat.get("hnsw_recall") is not None
     if lon_nhat_co_ann:
         print(

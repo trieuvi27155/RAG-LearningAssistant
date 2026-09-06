@@ -1,26 +1,4 @@
-"""Sinh bộ tài liệu mẫu ĐA DẠNG vào data/raw/ để đo chất lượng hệ thống.
-
-Vì sao cần script này thay vì chỉ dùng 1 tài liệu thật:
-Toàn bộ hiệu chỉnh trước đây của hệ thống (ngưỡng, chunk size, cách gộp ngữ cảnh) đều đo
-trên ĐÚNG MỘT tài liệu - giáo trình PDF 230 trang thuần văn bản. Điều đó khiến mọi con số
-"đã đo" chỉ chắc chắn đúng cho đúng loại tài liệu đó. Muốn biết hệ thống có thật sự tổng
-quát hay không thì phải có tài liệu NGẮN, tài liệu nhiều BẢNG, tài liệu có HÌNH, tài liệu
-nhiều cấp TIÊU ĐỀ - và phải có ngay để đo được trước/sau mỗi thay đổi.
-
-Bộ tài liệu này cố tình cài sẵn những "bẫy" đã biết là chỗ code dễ sai:
-  - Bảng lồng trong ô của bảng khác (python-docx không nhìn thấy - giới hạn đã ghi nhận).
-  - Ảnh/bảng nằm trong GROUP SHAPE của PowerPoint (vòng lặp shape phẳng sẽ bỏ sót).
-  - Ảnh neo/nổi trong DOCX (document.inline_shapes bỏ sót, phải duyệt qua rels).
-  - Tiêu đề PDF chỉ phân biệt được bằng CỠ CHỮ (không có metadata cấu trúc như DOCX/PPTX).
-  - Trang thưa chữ (slide) vs trang dày chữ - 2 cực của bài toán dựng ngữ cảnh.
-
-LƯU Ý QUAN TRỌNG: tài liệu tổng hợp KHÔNG thay thế được tài liệu thật. Số đo trên đây là
-chỉ dấu để phát hiện hồi quy và so sánh tương đối giữa các phiên bản, không phải bằng chứng
-hệ thống chạy tốt trên tài liệu thật của người dùng. Mọi kết luận rút ra từ riêng bộ này
-phải được đo lại khi có tài liệu thật.
-
-Cách chạy:  python evaluation/tao_tai_lieu_mau.py
-"""
+"""Sinh bộ tài liệu mẫu ĐA DẠNG vào data/raw/ để đo chất lượng hệ thống."""
 
 import sys
 from pathlib import Path
@@ -43,23 +21,10 @@ import config
 
 THU_MUC_ANH_TAM = config.DATA_DIR / "anh_mau"
 
-# Font mặc định của reportlab (Helvetica) KHÔNG có glyph tiếng Việt có dấu - chữ sẽ ra ô
-# vuông hoặc mất dấu, khiến tài liệu mẫu vô dụng cho việc đo tiếng Việt. Dùng font hệ thống.
 _FONT_HE_THONG = Path("C:/Windows/Fonts/arial.ttf")
 _TEN_FONT = "ArialVN"
 
 
-# ============================================================
-# Nội dung mẫu (chủ đề trung tính, KHÔNG lấy từ tài liệu thật của người dùng)
-# ============================================================
-# Cố ý chọn chủ đề "quản lý thư viện" - đủ xa lĩnh vực pháp luật của tài liệu cũ để nếu
-# model tình cờ nhớ nội dung cũ thì cũng không giúp gì được, và đủ đời thường để người đọc
-# tự kiểm chứng câu trả lời đúng/sai mà không cần chuyên môn.
-
-# Mỗi chương = 1 trang (ngăn bằng ngắt trang cứng). Nội dung từng chương phải KHÁC HẲN
-# nhau: nếu các trang giống nhau thì Precision@K mất ý nghĩa (không phân biệt nổi hệ thống
-# lấy đúng trang hay lấy trang bất kỳ có nội dung trùng) - đây là lỗi đã gặp ở bản đầu của
-# chính script này, phát hiện khi soi lại nội dung từng trang.
 CAC_CHUONG_DAI = [
     [
         ("Chương 1. Tổng quan về hệ thống thư viện", 1),
@@ -128,14 +93,6 @@ CAC_CHUONG_DAI = [
     ],
 ]
 
-# Tài liệu "gây nhiễu": rất nhiều mục CÙNG chủ đề, CÙNG cách diễn đạt, chỉ khác chi tiết
-# (mã loại, số ngày, tên phòng, mức phí). Đây mới là dạng khó thật sự của tài liệu dài -
-# và là dạng mà bộ mẫu ban đầu KHÔNG có: khi mỗi tài liệu nói một chủ đề riêng với từ vựng
-# riêng thì tìm kiếm vector trúng đích ngay từ hạng 1, không phân biệt được hệ thống tốt hay
-# tệ (đã đo: MRR = 1.00 ở mọi câu, tức phép đo bão hoà, vô dụng để so sánh).
-#
-# Với các mục gần như trùng nhau, việc tìm đúng mục phụ thuộc vào một vài TỪ KHOÁ HIẾM (mã
-# hồ sơ, con số) - đúng chỗ tìm kiếm vector yếu và BM25/rerank mạnh.
 _MA_HO_SO = ["A1", "A2", "B1", "B2", "C1", "C2", "D1", "D2", "E1", "E2",
              "F1", "F2", "G1", "G2", "H1", "H2", "K1", "K2", "M1", "M2"]
 _PHONG = ["Phòng Nghiệp vụ", "Phòng Bạn đọc", "Phòng Địa chí", "Phòng Ngoại văn",
@@ -191,10 +148,6 @@ BANG_PHAN_QUYEN = [
 ]
 
 
-# ============================================================
-# Ảnh minh hoạ (vẽ bằng PIL - không tải ảnh từ Internet)
-# ============================================================
-
 def _ve_so_do_quy_trinh(duong_dan: Path) -> Path:
     """Sơ đồ khối quy trình mượn - dùng để kiểm tra hệ thống có tìm được nội dung nằm
     TRONG hình hay không (chữ trong hình không nằm ở lớp text của tài liệu)."""
@@ -234,17 +187,8 @@ def _ve_bieu_do_cot(duong_dan: Path) -> Path:
     return duong_dan
 
 
-# ============================================================
-# Sinh từng loại tài liệu
-# ============================================================
-
 def tao_docx_dai(duong_dan: Path) -> None:
-    """Tài liệu DÀI, nhiều cấp tiêu đề - kiểm tra chunking có tôn trọng ranh giới mục không.
-
-    Dùng style "Heading N" chuẩn của Word: đây là tín hiệu cấu trúc ĐÁNG TIN NHẤT trong 3
-    định dạng (PDF chỉ suy ra được từ cỡ chữ), nên là mốc so sánh để biết heuristic PDF
-    còn cách bao xa so với trường hợp lý tưởng.
-    """
+    """Tài liệu DÀI, nhiều cấp tiêu đề - kiểm tra chunking có tôn trọng ranh giới mục không."""
     tai_lieu = Document()
     for i, chuong in enumerate(CAC_CHUONG_DAI):
         for noi_dung, cap in chuong:
@@ -252,20 +196,13 @@ def tao_docx_dai(duong_dan: Path) -> None:
                 tai_lieu.add_paragraph(noi_dung)
             else:
                 tai_lieu.add_heading(noi_dung, level=cap)
-        # Ngắt trang giữa các chương, KHÔNG ngắt sau chương cuối - ngắt cuối sẽ tạo ra một
-        # "trang" rỗng bị loader cảnh báo và bỏ qua (nhiễu log, không có nội dung thật).
         if i < len(CAC_CHUONG_DAI) - 1:
             tai_lieu.paragraphs[-1].add_run().add_break(WD_BREAK.PAGE)
     tai_lieu.save(duong_dan)
 
 
 def tao_docx_nhieu_muc_tuong_tu(duong_dan: Path) -> None:
-    """Tài liệu GÂY NHIỄU: 20 điều khoản gần như trùng nhau, mỗi điều 1 trang.
-
-    Mục đích không phải để đọc, mà để tạo ra tình huống khó thật: khi hỏi về hồ sơ loại
-    "G1", có 19 đoạn khác trông y hệt chỉ khác mã và con số. Hệ thống phải bám đúng từ khoá
-    hiếm ("G1") thay vì trôi theo độ giống chung chung của cả đoạn.
-    """
+    """Tài liệu GÂY NHIỄU: 20 điều khoản gần như trùng nhau, mỗi điều 1 trang."""
     tai_lieu = Document()
     tai_lieu.add_heading("Quy chế xử lý hồ sơ", level=1)
     cac_muc = _sinh_muc_tuong_tu()
@@ -281,12 +218,7 @@ def tao_docx_nhieu_muc_tuong_tu(duong_dan: Path) -> None:
 
 
 def tao_docx_co_bang(duong_dan: Path, anh_so_do: Path) -> None:
-    """Bảng xen giữa văn xuôi + BẢNG LỒNG trong ô + ảnh - gom nhiều bẫy vào 1 file.
-
-    Bảng lồng là giới hạn đã biết của python-docx (document.tables chỉ thấy bảng cấp cao
-    nhất). Đưa vào đây có chủ đích: để giới hạn đó hiện ra trong số đo thay vì âm thầm,
-    và để sau này nếu có cách xử lý thì có sẵn ca kiểm thử.
-    """
+    """Bảng xen giữa văn xuôi + BẢNG LỒNG trong ô + ảnh - gom nhiều bẫy vào 1 file."""
     tai_lieu = Document()
     tai_lieu.add_heading("Quy định mượn trả tài liệu", level=1)
     tai_lieu.add_paragraph(
@@ -310,7 +242,6 @@ def tao_docx_co_bang(duong_dan: Path, anh_so_do: Path) -> None:
         for j, o in enumerate(hang):
             bang2.cell(i, j).text = o
 
-    # Bảng LỒNG trong ô của bảng khác - python-docx không liệt kê được qua document.tables.
     o_chua_bang_long = bang2.cell(len(BANG_PHAN_QUYEN) - 1, len(BANG_PHAN_QUYEN[0]) - 1)
     bang_long = o_chua_bang_long.add_table(rows=2, cols=2)
     bang_long.cell(0, 0).text = "Ghi chú"
@@ -325,13 +256,9 @@ def tao_docx_co_bang(duong_dan: Path, anh_so_do: Path) -> None:
 
 
 def tao_pptx_ngan(duong_dan: Path) -> None:
-    """Tài liệu NGẮN, thưa chữ - cực đối lập với giáo trình dày chữ.
-
-    Mỗi slide chỉ vài dòng nên cả slide thường lọt gọn trong ngân sách ngữ cảnh; đây là
-    ca kiểm chứng rằng việc tối ưu cho tài liệu dài KHÔNG làm hỏng tài liệu ngắn.
-    """
+    """Tài liệu NGẮN, thưa chữ - cực đối lập với giáo trình dày chữ."""
     trinh_chieu = Presentation()
-    bo_cuc = trinh_chieu.slide_layouts[1]  # Title and Content
+    bo_cuc = trinh_chieu.slide_layouts[1]
     for tieu_de, cac_y in NOI_DUNG_SLIDE:
         slide = trinh_chieu.slides.add_slide(bo_cuc)
         slide.shapes.title.text = tieu_de
@@ -343,13 +270,9 @@ def tao_pptx_ngan(duong_dan: Path) -> None:
 
 
 def tao_pptx_bang_anh(duong_dan: Path, anh_so_do: Path, anh_bieu_do: Path) -> None:
-    """PPTX có bảng, ảnh thường, và ảnh+bảng NẰM TRONG GROUP SHAPE.
-
-    Group shape là bẫy đã xác minh: vòng lặp `for shape in slide.shapes` phẳng sẽ không
-    nhìn thấy gì bên trong group, nên nội dung đó biến mất khỏi index mà không báo lỗi.
-    """
+    """PPTX có bảng, ảnh thường, và ảnh+bảng NẰM TRONG GROUP SHAPE."""
     trinh_chieu = Presentation()
-    bo_cuc_trong = trinh_chieu.slide_layouts[5]  # Title Only
+    bo_cuc_trong = trinh_chieu.slide_layouts[5]
 
     slide = trinh_chieu.slides.add_slide(bo_cuc_trong)
     slide.shapes.title.text = "Bảng phí phạt theo loại tài liệu"
@@ -367,7 +290,6 @@ def tao_pptx_bang_anh(duong_dan: Path, anh_so_do: Path, anh_bieu_do: Path) -> No
     khung_caption = slide2.shapes.add_textbox(Inches(1.0), Inches(5.6), Inches(6.5), Inches(0.6))
     khung_caption.text_frame.text = "Hình 2: Lượt mượn tài liệu tăng dần qua các năm."
 
-    # Slide có GROUP SHAPE chứa ảnh + chú thích bên trong.
     slide3 = trinh_chieu.slides.add_slide(bo_cuc_trong)
     slide3.shapes.title.text = "Quy trình mượn (nhóm hình)"
     nhom = slide3.shapes.add_group_shape()
@@ -380,12 +302,7 @@ def tao_pptx_bang_anh(duong_dan: Path, anh_so_do: Path, anh_bieu_do: Path) -> No
 
 
 def tao_pdf_hon_hop(duong_dan: Path, anh_bieu_do: Path) -> None:
-    """PDF có tiêu đề phân biệt CHỈ bằng cỡ chữ, bảng kẻ khung, và ảnh kèm caption.
-
-    Đây là ca khó nhất: PDF không lưu cấu trúc logic (không có khái niệm "Heading 1" như
-    DOCX, không có placeholder title như PPTX) - muốn biết dòng nào là tiêu đề chỉ còn
-    cách suy ra từ cỡ chữ và độ dài dòng. File này là dữ liệu để hiệu chỉnh ngưỡng đó.
-    """
+    """PDF có tiêu đề phân biệt CHỈ bằng cỡ chữ, bảng kẻ khung, và ảnh kèm caption."""
     pdfmetrics.registerFont(TTFont(_TEN_FONT, str(_FONT_HE_THONG)))
     trang = canvas.Canvas(str(duong_dan), pagesize=A4)
     rong, cao = A4
@@ -394,7 +311,6 @@ def tao_pdf_hon_hop(duong_dan: Path, anh_bieu_do: Path) -> None:
         trang.setFont(_TEN_FONT, co)
         trang.drawString(2.5 * cm, y, chu)
 
-    # --- Trang 1: tiêu đề nhiều cấp + văn xuôi ---
     y = cao - 3 * cm
     _dong(y, "Sổ tay nghiệp vụ thư viện", 20); y -= 1.2 * cm
     _dong(y, "Phần 1. Mượn và trả tài liệu", 15); y -= 1.0 * cm
@@ -415,7 +331,6 @@ def tao_pdf_hon_hop(duong_dan: Path, anh_bieu_do: Path) -> None:
         _dong(y, cau); y -= 0.7 * cm
     trang.showPage()
 
-    # --- Trang 2: bảng KẺ KHUNG (để pdfplumber.find_tables nhận ra) ---
     y = cao - 3 * cm
     _dong(y, "Phần 3. Biểu phí áp dụng", 15); y -= 1.2 * cm
     trang.setFont(_TEN_FONT, 10)
@@ -431,7 +346,6 @@ def tao_pdf_hon_hop(duong_dan: Path, anh_bieu_do: Path) -> None:
         y_bang -= cao_hang
     trang.showPage()
 
-    # --- Trang 3: ảnh + caption ---
     y = cao - 3 * cm
     _dong(y, "Phần 4. Thống kê sử dụng", 15); y -= 1.0 * cm
     _dong(y, "Số liệu lượt mượn được tổng hợp cuối mỗi năm để lập kế hoạch bổ sung.")

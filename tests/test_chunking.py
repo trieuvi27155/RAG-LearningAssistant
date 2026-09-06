@@ -27,9 +27,8 @@ def test_splitter_duoc_cau_hinh_dung_theo_config():
 
 
 def test_kich_thuoc_chunk_tu_ha_theo_gioi_han_cua_model():
-    """Nội dung vượt max_seq_length bị embedding model cắt bỏ ÂM THẦM lúc encode - phần bị
-    cắt sẽ không nằm trong vector nên vĩnh viễn không tìm thấy được. Vì vậy chunk phải tự
-    nhỏ theo model, không phụ thuộc vào việc có ai nhớ sửa config hay không."""
+    """Chunk phải tự hạ kích thước theo giới hạn của model, vì nội dung vượt max_seq_length
+    bị embedding model cắt bỏ âm thầm lúc encode."""
     assert kich_thuoc_chunk_an_toan(64) == 64 - config.BIEN_AN_TOAN_TOKEN
     assert kich_thuoc_chunk_an_toan(4096) == config.CHUNK_SIZE_TOKENS
     assert kich_thuoc_chunk_an_toan(None) == config.CHUNK_SIZE_TOKENS
@@ -42,16 +41,15 @@ def test_chunk_khong_vuot_qua_kich_thuoc_cau_hinh():
     cac_trang = [{"nguon": "test.pdf", "trang": 1, "noidung": noi_dung_dai}]
     cac_chunk = chia_chunk(cac_trang)
 
-    assert len(cac_chunk) > 1  # nội dung đủ dài nên phải bị chia thành nhiều chunk
+    assert len(cac_chunk) > 1
     for chunk in cac_chunk:
         assert dem_token(chunk["noidung"]) <= config.CHUNK_SIZE_TOKENS
 
 
 def test_chunk_dung_ham_dem_token_duoc_truyen_vao():
-    """Kích thước chunk chỉ có ý nghĩa khi đo bằng tokenizer của chính model sẽ encode nó -
-    đo bằng tiktoken cho ra số token gấp ~1.9 lần trên tiếng Việt, khiến chunk nhỏ hơn hẳn
-    dự định và nội dung bị băm vụn."""
-    dem_theo_tu = lambda text: len(text.split())  # noqa: E731 - bộ đếm giả, chỉ dùng trong test
+    """Kích thước chunk phải đo bằng tokenizer của chính model sẽ encode nó - đo bằng tiktoken
+    cho ra số token gấp ~1.9 lần trên tiếng Việt."""
+    dem_theo_tu = lambda text: len(text.split())  # noqa: E731
     cac_trang = [{"nguon": "test.pdf", "trang": 1, "noidung": "từ " * 400}]
     cac_chunk = chia_chunk(cac_trang, dem_token_fn=dem_theo_tu)
 
@@ -99,13 +97,9 @@ def test_chunk_tra_ve_rong_voi_trang_khong_co_noi_dung():
 
 def test_bang_duoc_phep_dai_hon_van_xuoi():
     """Cắt nhỏ bảng phá đúng thứ khiến nó là bảng (dòng tiêu đề cột), mà không đổi lại được
-    gì về độ chính xác truy xuất. Ràng buộc cứng duy nhất với bảng là giới hạn của model.
-
-    Đo trên bộ tài liệu thật: 15 bảng bị cắt vì vượt 160 token, phần lớn dài 164-476 token -
-    vẫn nằm gọn trong giới hạn 496 của model, tức bị cắt oan hoàn toàn."""
+    gì về độ chính xác truy xuất. Ràng buộc cứng duy nhất với bảng là giới hạn của model."""
     from rag.document_loader import MOC_BANG_DONG, MOC_BANG_MO
 
-    # Bảng ~300 "token" theo bộ đếm giả: vượt CHUNK_SIZE_TOKENS nhưng vừa giới hạn model.
     hang = "| cot mot | cot hai | cot ba |\n"
     bang = f"{MOC_BANG_MO}\n" + hang * 100 + f"{MOC_BANG_DONG}"
     cac_trang = [{"nguon": "a.pdf", "trang": 1, "noidung": bang}]

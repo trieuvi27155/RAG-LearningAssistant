@@ -11,6 +11,10 @@
 > - **Phần IV** là tra cứu nhanh: từ điển thuật ngữ, bảng "hàm này nằm ở đâu".
 > - **Phần V** là nhận xét phản biện về thiết kế — chỗ mạnh, chỗ đáng chú ý, chỗ có rủi ro.
 >
+> **Lưu ý về nơi lưu lý do:** code chỉ giữ docstring ngắn 1–2 dòng mô tả công dụng của mỗi
+> hàm. Toàn bộ phần lập luận — vì sao chọn cách này, đã đo được gì, đã thử gì rồi bỏ — nằm ở
+> `ARCHITECTURE.md` §5 và ở chính tài liệu này. Các đoạn trích dẫn bên dưới lấy từ đó.
+>
 > Ba tài liệu đã có sẵn trong repo phục vụ mục đích khác, nên đừng nhầm:
 > `README.md` là hướng dẫn dùng, `ARCHITECTURE.md` là nhật ký quyết định thiết kế
 > (§5.1 → §5.68), `KET_QUA_DO_DAC.md` là số liệu đo. Tài liệu bạn đang đọc là **bản đồ để
@@ -102,7 +106,8 @@ dễ hơn rất nhiều:
 > **Lỗi im lặng là kẻ thù số một.**
 
 Rất nhiều đoạn code trong dự án không tồn tại để làm hệ thống *tốt hơn*, mà để làm cho việc
-hệ thống *hỏng* trở nên **nhìn thấy được**. Vài ví dụ có thật, đều được ghi lại trong comment:
+hệ thống *hỏng* trở nên **nhìn thấy được**. Vài ví dụ có thật, đều được ghi lại ở
+`ARCHITECTURE.md` §5:
 
 - Đổi model embedding mà quên build lại index → FAISS vẫn chạy bình thường, chỉ có điều kết
   quả gần như ngẫu nhiên. → `VectorStore.ly_do_khong_tuong_thich()` ghi "vân tay" cấu hình
@@ -114,8 +119,8 @@ hệ thống *hỏng* trở nên **nhìn thấy được**. Vài ví dụ có th
   giống hệt nhau, hệ thống báo "build thành công". → `_bo_ban_ghi_anh_rong()` +
   `_canh_bao_tai_lieu_khong_doc_duoc()`.
 
-Khi bạn thấy một hàm có vẻ thừa, hãy đọc docstring của nó — gần như luôn có một dòng
-"đã gặp thực tế" giải thích vì sao nó ở đó.
+Khi bạn thấy một hàm có vẻ thừa, hãy tra tên nó trong `ARCHITECTURE.md` §5 — gần như luôn
+có một mục "đã gặp thực tế" giải thích vì sao nó ở đó.
 
 ---
 
@@ -279,51 +284,51 @@ Quan hệ giữa chúng đáng nhớ:
 ```
 rag-do-an/
 │
-├── app.py                     842 dòng   Giao diện Streamlit + điều phối luồng Ingestion
-├── config.py                1.293 dòng   Toàn bộ tham số, đọc từ .env, kèm giải thích dài
+├── app.py                     576 dòng   Giao diện Streamlit + điều phối luồng Ingestion
+├── config.py                  280 dòng   Toàn bộ tham số, đọc từ .env (lý do: .env.example)
 │
 ├── rag/                                  ── LÕI HỆ THỐNG ──
 │   ├── __init__.py                       (rỗng, chỉ để đánh dấu package)
 │   │
 │   │   ── Ingestion: từ file → nội dung có metadata ──
-│   ├── document_loader.py   1.262 dòng   Đọc PDF/PPTX/DOCX, OCR dự phòng, đọc theo cột, bảng
-│   ├── image_extractor.py     396 dòng   Trích ảnh, lọc logo/trang trí, gắn chú thích lân cận
-│   ├── vision_caption.py      264 dòng   Gọi model vision mô tả ảnh + OCR trang scan
-│   ├── chunking.py            298 dòng   Cắt nội dung thành chunk, xử lý riêng cho bảng
-│   ├── bo_nho_dem.py          357 dòng   Cache theo content hash (tài liệu/OCR/vision/vector)
-│   ├── do_thoi_gian.py        106 dòng   Đo thời gian từng bước, in bảng tổng kết
+│   ├── document_loader.py     813 dòng   Đọc PDF/PPTX/DOCX, OCR dự phòng, đọc theo cột, bảng
+│   ├── image_extractor.py     251 dòng   Trích ảnh, lọc logo/trang trí, gắn chú thích lân cận
+│   ├── vision_caption.py      179 dòng   Gọi model vision mô tả ảnh + OCR trang scan
+│   ├── chunking.py            200 dòng   Cắt nội dung thành chunk, xử lý riêng cho bảng
+│   ├── bo_nho_dem.py          256 dòng   Cache theo content hash (tài liệu/OCR/vision/vector)
+│   ├── do_thoi_gian.py         72 dòng   Đo thời gian từng bước, in bảng tổng kết
 │   │
 │   │   ── Lưu trữ & tìm kiếm ──
-│   ├── embedding.py           147 dòng   Bọc sentence-transformers, đếm token đúng chuẩn
-│   ├── vector_store.py        319 dòng   Bọc FAISS + metadata + 3 chỉ mục phụ dựng lười
-│   ├── lexical_search.py      100 dòng   BM25 tự cài (không dùng thư viện ngoài)
-│   ├── reranker.py             88 dòng   Bọc CrossEncoder
+│   ├── embedding.py            89 dòng   Bọc sentence-transformers, đếm token đúng chuẩn
+│   ├── vector_store.py        209 dòng   Bọc FAISS + metadata + 3 chỉ mục phụ dựng lười
+│   ├── lexical_search.py       57 dòng   BM25 tự cài (không dùng thư viện ngoài)
+│   ├── reranker.py             46 dòng   Bọc CrossEncoder
 │   │
 │   │   ── Query: từ câu hỏi → câu trả lời có trích dẫn ──
-│   ├── tiep_noi_hoi_thoai.py  403 dòng   Nhận diện & xử lý câu hỏi nối tiếp
-│   ├── rag_pipeline.py      1.510 dòng   TRÁI TIM: truy xuất lai + rerank + prompt + gọi LLM
-│   ├── citation.py            308 dòng   Lọc nguồn theo số [n] mà câu trả lời thật sự dẫn
-│   ├── doi_chieu_nguon.py     369 dòng   Phát hiện hai nguồn nói ngược nhau
+│   ├── tiep_noi_hoi_thoai.py  220 dòng   Nhận diện & xử lý câu hỏi nối tiếp
+│   ├── rag_pipeline.py        931 dòng   TRÁI TIM: truy xuất lai + rerank + prompt + gọi LLM
+│   ├── citation.py            160 dòng   Lọc nguồn theo số [n] mà câu trả lời thật sự dẫn
+│   ├── doi_chieu_nguon.py     215 dòng   Phát hiện hai nguồn nói ngược nhau
 │   │
 │   │   ── Hạ tầng ──
-│   └── tai_nguyen_gpu.py      395 dòng   Dò phần cứng, chia VRAM theo giai đoạn
+│   └── tai_nguyen_gpu.py      189 dòng   Dò phần cứng, chia VRAM theo giai đoạn
 │
 ├── evaluation/                           ── ĐO ĐẠC (11 script + 3 bộ câu hỏi + 4 CSV) ──
-│   ├── metrics.py             424 dòng   Precision@K, Recall@K, MRR, Faithfulness, Citation
-│   ├── run_evaluation.py      505 dòng   Chạy đánh giá, in bảng, xuất CSV, so với lần trước
-│   ├── tao_tai_lieu_mau.py    475 dòng   Sinh 6 tài liệu mẫu ĐỘC LẬP để chống overfit
-│   ├── kiem_dinh_judge.py     195 dòng   Đo độ tin cậy của CHÍNH thước đo Faithfulness
-│   ├── kiem_dinh_doi_chieu.py 187 dòng   Đo độ tin cậy của cơ chế phát hiện mâu thuẫn
-│   ├── kiem_dinh_viet_lai.py  255 dòng   Đo nhận diện câu nối tiếp
-│   ├── do_dau_cuoi.py         268 dòng   Đo đầu-cuối: nạp tài liệu → hỏi được
-│   ├── do_nguong_rerank.py    144 dòng   Đo điểm rerank có tách được câu lạc đề không
-│   ├── do_quy_mo_index.py     271 dòng   Đo FAISS Flat chịu được corpus tới cỡ nào
-│   ├── do_worker_gpu.py       195 dòng   Đo số worker OCR tối ưu (kèm GPU util, VRAM)
+│   ├── metrics.py             277 dòng   Precision@K, Recall@K, MRR, Faithfulness, Citation
+│   ├── run_evaluation.py      410 dòng   Chạy đánh giá, in bảng, xuất CSV, so với lần trước
+│   ├── tao_tai_lieu_mau.py    389 dòng   Sinh 6 tài liệu mẫu ĐỘC LẬP để chống overfit
+│   ├── kiem_dinh_judge.py     156 dòng   Đo độ tin cậy của CHÍNH thước đo Faithfulness
+│   ├── kiem_dinh_doi_chieu.py 157 dòng   Đo độ tin cậy của cơ chế phát hiện mâu thuẫn
+│   ├── kiem_dinh_viet_lai.py  195 dòng   Đo nhận diện câu nối tiếp
+│   ├── do_dau_cuoi.py         224 dòng   Đo đầu-cuối: nạp tài liệu → hỏi được
+│   ├── do_nguong_rerank.py    120 dòng   Đo điểm rerank có tách được câu lạc đề không
+│   ├── do_quy_mo_index.py     204 dòng   Đo FAISS Flat chịu được corpus tới cỡ nào
+│   ├── do_worker_gpu.py       157 dòng   Đo số worker OCR tối ưu (kèm GPU util, VRAM)
 │   ├── test_questions.json               29 câu hỏi in-sample (có nhãn trang đúng)
 │   ├── test_questions_held_out.json      Bộ HELD-OUT, không dùng để tinh chỉnh
 │   └── ket_qua_danh_gia*.csv             Kết quả các lần chạy (để so lần trước/sau)
 │
-├── tests/                                ── 22 file test + conftest, 335 test pytest ──
+├── tests/                                ── 22 file test + conftest, 405 test pytest ──
 │
 ├── data/                                 ── DỮ LIỆU (xem §3.2) ──
 ├── TaiLieuTest/                          ── 26 tài liệu thật dùng để đo ──
@@ -771,16 +776,16 @@ Hàm bắt đầu bằng dấu gạch dưới `_` là **hàm nội bộ** (priva
 
 ---
 
-## 9. `config.py` — tầng cấu hình (1.293 dòng)
+## 9. `config.py` — tầng cấu hình (280 dòng)
 
 ### 9.1. Vai trò
 
 Một chỗ duy nhất chứa mọi tham số. Mọi file khác `import config` rồi đọc
 `config.TEN_THAM_SO`. Không có số ma thuật (magic number) rải rác trong logic.
 
-File dài 1.293 dòng nhưng **phần lớn là chú thích**: mỗi tham số quan trọng đều kèm một
-đoạn giải thích tại sao giá trị mặc định là như vậy, thường có số đo kèm theo. Đọc file này
-là cách nhanh nhất để hiểu các đánh đổi của hệ thống.
+Bản thân file chỉ còn phần khai báo. Lý do chọn từng giá trị mặc định — kèm số đo — nằm ở
+`.env.example` (426 dòng, mỗi nhóm tham số một đoạn giải thích) và `ARCHITECTURE.md` §5.
+Đọc hai chỗ đó là cách nhanh nhất để hiểu các đánh đổi của hệ thống.
 
 ### 9.2. Cơ chế nạp cấu hình
 
@@ -1022,7 +1027,7 @@ Suy số worker mặc định từ chính máy đang chạy, chặn trên bằng
 
 ---
 
-## 10. `app.py` — tầng giao diện (842 dòng)
+## 10. `app.py` — tầng giao diện (576 dòng)
 
 ### 10.1. Vai trò và mô hình chạy của Streamlit
 
@@ -1165,8 +1170,8 @@ lời diễn đạt lại bằng lời của mình, điều hoàn toàn hợp l�
 def _hien_thi_cach_hieu(truy_van: dict) -> None
 ```
 Nói ra việc hệ thống đã hiểu câu hỏi này là **nối tiếp** một câu trước đó. *(Lưu ý: trong
-bản hiện tại phần thân đang bị comment lại, nên hàm không vẽ gì. Docstring vẫn giữ nguyên
-lập luận — đây là chỗ nên xem lại khi hoàn thiện.)*
+bản hiện tại hàm thoát sớm và không vẽ gì — bản nháp `st.caption()` từng nằm ở đây dưới
+dạng code bị comment và đã được gỡ, xem lịch sử git. Đây là chỗ nên xem lại khi hoàn thiện.)*
 
 ```python
 def _hien_thi_mau_thuan(cac_mau_thuan: list) -> None
@@ -1208,7 +1213,7 @@ một đường mã.
 5. **Ô nhập** — đặt ở tầng ngoài cùng của script (không nằm trong container nào), đó là điều
    kiện để Streamlit ghim nó xuống đáy màn hình.
 
-### 10.5. Ba bug Streamlit đã sửa, ghi lại trong code
+### 10.5. Ba bug Streamlit đã sửa
 
 Đây là phần thực dụng nhất của file, đáng đọc kỹ nếu bạn định làm app Streamlit:
 
@@ -1235,7 +1240,7 @@ Sáu file, chạy theo thứ tự: `bo_nho_dem` (tra cache) → `document_loader
 
 ---
 
-### 11.1. `rag/document_loader.py` — đọc tài liệu (1.262 dòng)
+### 11.1. `rag/document_loader.py` — đọc tài liệu (813 dòng)
 
 **Vai trò**: biến một file PDF/PPTX/DOCX thành `List[{nguon, trang, noidung}]`, giữ metadata
 ngay từ bước đọc. Đây là file dài nhất và phức tạp nhất của luồng Ingestion, vì thực tế tài
@@ -1481,7 +1486,7 @@ cuối.
 
 ---
 
-### 11.2. `rag/image_extractor.py` — trích ảnh (396 dòng)
+### 11.2. `rag/image_extractor.py` — trích ảnh (251 dòng)
 
 **Vai trò**: lấy hình ra khỏi tài liệu, **lọc bỏ rác** (logo, đường kẻ, ảnh chụp trang chữ),
 và gắn chú thích văn bản lân cận.
@@ -1538,7 +1543,7 @@ shape; DOCX đi qua quan hệ (rels) của phần thân tài liệu.
 
 ---
 
-### 11.3. `rag/vision_caption.py` — model vision (264 dòng)
+### 11.3. `rag/vision_caption.py` — model vision (179 dòng)
 
 **Vai trò**: hai việc khác nhau dùng chung một model —
 (1) **mô tả nội dung hình** để hình cũng tra cứu được;
@@ -1598,12 +1603,12 @@ cho biết **bên trong hình có gì**.
    này đắt nhất (~1,9 s/ảnh) nhưng cũng **nhàn rỗi nhất về phía Python** (toàn bộ thời gian
    là ngồi chờ HTTP), nên song song hoá có lãi.
 
-> Ghi chú trong code nói rất rõ vì sao thứ tự quan trọng: làm ngược lại (gọi song song
+> Vì sao thứ tự quan trọng: làm ngược lại (gọi song song
 > trước) chỉ khiến hệ thống chú thích **cùng một cái logo trên 8 luồng cùng lúc**.
 
 ---
 
-### 11.4. `rag/chunking.py` — cắt chunk (298 dòng)
+### 11.4. `rag/chunking.py` — cắt chunk (200 dòng)
 
 **Vai trò**: `List[trang]` → `List[chunk]`.
 
@@ -1612,8 +1617,8 @@ cho biết **bên trong hình có gì**.
 ```python
 def dem_token(text: str) -> int
 ```
-Đếm token bằng tiktoken. **Chỉ dùng khi không có tokenizer của model thật.** Cảnh báo trong
-docstring: với tiếng Việt, tiktoken đếm ra số token **gấp ~1.9 lần** tokenizer thật của các
+Đếm token bằng tiktoken. **Chỉ dùng khi không có tokenizer của model thật.** Lý do: với
+tiếng Việt, tiktoken đếm ra số token **gấp ~1.9 lần** tokenizer thật của các
 model nền XLM-R, nên dùng nó làm thước đo sẽ tạo ra chunk nhỏ hơn dự định rất nhiều.
 
 ```python
@@ -1671,7 +1676,7 @@ sách**, không dựa vào việc `vi_tri` liên tục.
 
 ---
 
-### 11.5. `rag/bo_nho_dem.py` — bộ nhớ đệm (357 dòng)
+### 11.5. `rag/bo_nho_dem.py` — bộ nhớ đệm (256 dòng)
 
 **Vai trò**: bốn tầng cache theo **content hash**, làm cho câu "tài liệu đã xử lý rồi thì
 không xử lý lại" thành hành vi thật.
@@ -1744,7 +1749,7 @@ Khác ba kho trên: lưu trong **một file `.npz` duy nhất** (hàng nghìn fi
 vector là lãng phí). `luu()` gộp phần mới vào file — không có gì mới thì **không đụng vào
 đĩa**.
 
-Có một bẫy được ghi lại trong comment, rất đáng đọc: tên file tạm **phải** kết thúc bằng
+Có một bẫy rất đáng biết: tên file tạm **phải** kết thúc bằng
 `.npz`, vì `np.savez` tự nối thêm đuôi đó khi thiếu — một tên như `"....npz.tam"` sẽ được
 ghi thành `"....npz.tam.npz"` và lệnh đổi tên ngay sau đó không tìm thấy file, khiến **cache
 im lặng không bao giờ được ghi**.
@@ -1765,7 +1770,7 @@ def xoa_cache() -> None          # an toàn tuyệt đối — mọi thứ trong
 
 ---
 
-### 11.6. `rag/do_thoi_gian.py` — đo thời gian (106 dòng)
+### 11.6. `rag/do_thoi_gian.py` — đo thời gian (72 dòng)
 
 **Vai trò**: đo thời gian từng bước Ingestion để **tối ưu bằng số đo, không bằng phỏng đoán**.
 
@@ -1799,7 +1804,7 @@ Các nhãn đang được đo: `bam_tai_lieu`, `tai_lieu_doc_moi`, `tai_lieu_tru
 
 ---
 
-### 12.1. `rag/embedding.py` — bọc sentence-transformers (147 dòng)
+### 12.1. `rag/embedding.py` — bọc sentence-transformers (89 dòng)
 
 **Vai trò**: biến chữ thành vector. Mỏng, nhưng có bốn chi tiết quan trọng.
 
@@ -1847,7 +1852,7 @@ bằng tiktoken (lệch ~1.9 lần với tiếng Việt).
 
 ---
 
-### 12.2. `rag/vector_store.py` — bọc FAISS (319 dòng)
+### 12.2. `rag/vector_store.py` — bọc FAISS (209 dòng)
 
 **Vai trò**: giữ vector + metadata song song, tìm kiếm, lưu/nạp, và kiểm tra tương thích.
 
@@ -1974,7 +1979,7 @@ cảnh báo trên thanh bên, và chặn build tăng dần.
 
 ---
 
-### 12.3. `rag/lexical_search.py` — BM25 (100 dòng)
+### 12.3. `rag/lexical_search.py` — BM25 (57 dòng)
 
 **Vai trò**: nhánh tìm kiếm theo **từ khoá**, bù khuyết cho FAISS ở những chỗ vector kém:
 mã định danh, tên riêng, thuật ngữ ngoài từ vựng.
@@ -2013,7 +2018,7 @@ tài liệu thì điểm tăng nhưng **bão hoà** (nhờ `k1`); tài liệu d�
 
 ---
 
-### 12.4. `rag/reranker.py` — cross-encoder (88 dòng)
+### 12.4. `rag/reranker.py` — cross-encoder (46 dòng)
 
 **Vai trò**: tầng lọc **thứ hai**. Đọc cả cặp `(câu hỏi, đoạn văn)` cùng lúc và chấm điểm
 liên quan.
@@ -2039,7 +2044,7 @@ tắt thật, không phải nạp rồi bỏ qua.
 
 ---
 
-### 13.1. `rag/tiep_noi_hoi_thoai.py` — câu hỏi nối tiếp (403 dòng)
+### 13.1. `rag/tiep_noi_hoi_thoai.py` — câu hỏi nối tiếp (220 dòng)
 
 **Vấn đề**: người dùng hỏi *"Vi phạm pháp luật gồm những dấu hiệu nào?"*, rồi hỏi tiếp
 *"Thế còn dấu hiệu thứ hai?"*. Câu thứ hai tách khỏi ngữ cảnh thì vô nghĩa — vector của nó
@@ -2141,7 +2146,7 @@ Câu hỏi tự đứng được — **đại đa số** — đi qua đây gần
 
 ---
 
-### 13.2. `rag/rag_pipeline.py` — trái tim hệ thống (1.510 dòng)
+### 13.2. `rag/rag_pipeline.py` — trái tim hệ thống (931 dòng)
 
 **Vai trò**: ghép toàn bộ luồng Query. Đây là file quan trọng nhất; nếu chỉ đọc được một
 file thì đọc file này.
@@ -2291,7 +2296,7 @@ def nen_ngu_canh(cac_chunk: List[Dict], ngan_sach_token: int) -> List[Dict]
 ```
 Ép đoạn trích vào ngân sách, **bỏ từ đoạn xếp hạng thấp nhất lên**.
 
-Ba lý do trong docstring đáng đọc nguyên văn:
+Ba lý do đằng sau bước này:
 - **Vì sao cần bước này** dù `_tinh_num_ctx` đã cảnh báo: cảnh báo chỉ nói cho người dùng
   biết cấu hình quá tay, nhưng lượt hỏi **đang chạy** vẫn hỏng — Ollama cắt im lặng từ **đầu**
   phần user content, tức xoá đúng đoạn `[1]`, đoạn liên quan nhất.
@@ -2437,7 +2442,7 @@ Cảnh báo hai trường hợp: `prompt_eval_count ≥ num_ctx` (prompt bị c�
 `done_reason == "length"` (câu trả lời bị cắt cụt).
 
 > *"Một lớp lỗi mà hệ thống KHÔNG THỂ tự phát hiện thì mọi kết luận rút ra từ nó đều đáng
-> ngờ."* — câu này trong docstring tóm gọn triết lý của cả dự án.
+> ngờ."* — câu này tóm gọn triết lý của cả dự án.
 
 ```python
     def sinh_cau_tra_loi_theo_luong(self, cau_hoi, cac_chunk, ngu_canh_hoi_thoai="") -> Iterator
@@ -2445,7 +2450,7 @@ Cảnh báo hai trường hợp: `prompt_eval_count ≥ num_ctx` (prompt bị c�
 Chọn ngôn ngữ → chọn prompt → nén ngữ cảnh → ghép prompt → gọi LLM. Không có chunk nào thì
 trả câu từ chối **mà không gọi LLM**.
 
-Trong hàm này có một đoạn comment dài đáng đọc: **ngân sách sinh KHÔNG thích ứng, và đó là
+Một điểm quan trọng về hàm này: **ngân sách sinh KHÔNG thích ứng, và đó là
 một tính năng đã bị GỠ BỎ**. Bản trước hạ `num_predict` xuống 3000 cho câu hỏi "đơn giản".
 Lập luận đó sai ở chỗ căn bản: `num_predict` giới hạn **suy luận + câu trả lời cộng lại**,
 mà riêng chuỗi suy luận của qwen3 đã ngốn 2.000–4.000 token. Đo lại:
@@ -2484,7 +2489,7 @@ Bản đồng bộ: chạy generator trên tới sự kiện `"xong"` rồi tr�
 
 ---
 
-### 13.3. `rag/citation.py` — trích dẫn (308 dòng)
+### 13.3. `rag/citation.py` — trích dẫn (160 dòng)
 
 **Vai trò**: biến các số `[n]` mà LLM gắn thành danh sách nguồn hiển thị được, và cung cấp
 phép đo "bám nguồn".
@@ -2535,7 +2540,7 @@ một trang cụ thể là tự mâu thuẫn.
 Các đoạn cùng `(nguồn, trang)` được **gộp lại** khi hiển thị nhưng **giữ lại mọi số hiệu**
 trỏ về đó.
 
-> Con số đáng chú ý trong docstring: đo trên bộ 29 câu, **4 câu trả lời thật không gắn số
+> Con số đáng chú ý: đo trên bộ 29 câu, **4 câu trả lời thật không gắn số
 > nào**; đo lặp lại cùng một câu 4 lần thì **tỉ lệ tuân thủ chỉ 50%**. Tức lớp 3 không phải
 > trường hợp hiếm — và đó là lý do phải đánh dấu nó rõ ràng thay vì trình bày như căn cứ thật.
 
@@ -2574,7 +2579,7 @@ Chuỗi text hiển thị nhanh cho script/terminal.
 
 ---
 
-### 13.4. `rag/doi_chieu_nguon.py` — phát hiện mâu thuẫn (369 dòng)
+### 13.4. `rag/doi_chieu_nguon.py` — phát hiện mâu thuẫn (215 dòng)
 
 **Vấn đề**: giáo trình cũ ghi "ba đặc điểm", slide mới ghi "năm đặc điểm". Người đọc mở
 từng file thì mỗi file đều tự nhất quán. Chỉ khi đặt cạnh nhau mới lộ — mà đặt cạnh nhau
@@ -2645,7 +2650,7 @@ báo, không đổi câu trả lời.
 
 ---
 
-## 14. `rag/tai_nguyen_gpu.py` — quản lý phần cứng (395 dòng)
+## 14. `rag/tai_nguyen_gpu.py` — quản lý phần cứng (189 dòng)
 
 **Vấn đề**: bốn model cộng lại (~9 GB) vượt VRAM của card phổ thông. Nhưng chúng **không cần
 cùng lúc**: model vision chỉ dùng lúc Ingestion, LLM và reranker chỉ dùng lúc Query.
@@ -2731,7 +2736,7 @@ tao_tai_lieu_mau.py  kiem_dinh_viet_lai.py      do_dau_cuoi.py
 
 ---
 
-### 15.1. `evaluation/metrics.py` — các độ đo (424 dòng)
+### 15.1. `evaluation/metrics.py` — các độ đo (277 dòng)
 
 #### Nhóm độ đo TRUY XUẤT (tất định, không gọi LLM)
 
@@ -2850,7 +2855,7 @@ thể đạt Faithfulness cao mà trích dẫn vẫn sai chỗ.
 
 ---
 
-### 15.2. `evaluation/run_evaluation.py` — chạy đánh giá (505 dòng)
+### 15.2. `evaluation/run_evaluation.py` — chạy đánh giá (410 dòng)
 
 **Cách chạy**:
 
@@ -2929,7 +2934,7 @@ thay đổi metric nào.
 
 ---
 
-### 15.3. `evaluation/tao_tai_lieu_mau.py` — sinh tài liệu mẫu (475 dòng)
+### 15.3. `evaluation/tao_tai_lieu_mau.py` — sinh tài liệu mẫu (389 dòng)
 
 **Vai trò**: sinh 6 tài liệu **độc lập hoàn toàn** với corpus thật, để kiểm chứng chống
 overfitting. Chạy: `python evaluation/tao_tai_lieu_mau.py`.
@@ -2967,7 +2972,7 @@ hạng 1, 2 câu lạc đề bị chặn đúng, **0 chunk vượt giới hạn 
 ### 15.4. Ba script `kiem_dinh_*.py` — đo chính các thước đo
 
 ```python
-# kiem_dinh_judge.py (195 dòng)
+# kiem_dinh_judge.py (156 dòng)
 CAC_CA_KIEM_DINH      # ca có đáp án biết trước
 def _chay_mot_ca(cau_tra_loi: str, ngu_canh: str) -> dict
 def main() -> None
@@ -2980,7 +2985,7 @@ ca đã khiến giám khảo chấm sai.
 logic — nếu không thì bài kiểm định đo một thứ khác với thứ đang chạy thật.
 
 ```python
-# kiem_dinh_doi_chieu.py (187 dòng)
+# kiem_dinh_doi_chieu.py (157 dòng)
 def _doan(nguon, trang, noidung)
 CAC_CA_KIEM_DINH      # 7 ca, trong đó 3 ca PHẢI IM LẶNG
 def main() -> None
@@ -2989,7 +2994,7 @@ def main() -> None
 phủ định, và **ba ca bổ sung cho nhau — không được báo động**.
 
 ```python
-# kiem_dinh_viet_lai.py (255 dòng)
+# kiem_dinh_viet_lai.py (195 dòng)
 _HOI_THOAI_LUAT / _HOI_THOAI_ML / _HOI_THOAI_THU_VIEN     # ba kịch bản hội thoại
 CAC_CA                                                     # ca có nhãn (là nối tiếp / không)
 def _khong_dau(s: str) -> str
@@ -3007,7 +3012,7 @@ nào**, không cần gán nhãn tay. Kết quả: **1/16 → 16/16** trùng chu�
 ### 15.5. Bốn script `do_*.py` — đo hạ tầng
 
 ```python
-# do_nguong_rerank.py (144 dòng)
+# do_nguong_rerank.py (120 dòng)
 TRONG_PHAM_VI_VI / TRONG_PHAM_VI_EN / LAC_DE_VI            # ba nhóm câu hỏi
 def _diem_cao_nhat(pipeline, reranker, cau_hoi) -> (cosine, rerank)
 def _in_nhom(nhan, cac_diem)
@@ -3018,7 +3023,7 @@ chính là script đã cho ra con số biện minh cho `NGUONG_DIEM_RERANK_TOI_T
 cũng cho thấy **cosine KHÔNG làm được việc này**.
 
 ```python
-# do_quy_mo_index.py (271 dòng)
+# do_quy_mo_index.py (204 dòng)
 K_TIM_KIEM, NGAN_SACH_TIM_KIEM_MS = 200.0, SO_CAU_HOI_DO = 30
 def _so_co_dau_cham(n: int) -> str                          # 123456 -> '123.456'
 def _vector_gia_lap(so_luong, so_chieu, seed, so_cum=200, do_tuong_dong=0.8) -> np.ndarray
@@ -3034,7 +3039,7 @@ def main() -> None
 quá lạc quan cho các index gần đúng.
 
 ```python
-# do_worker_gpu.py (195 dòng)
+# do_worker_gpu.py (157 dòng)
 class TheoDoiGpu:
     def __init__(self, chu_ky_giay: float = 0.25)
     def _lay_mau(self) -> None                    # gọi nvidia-smi
@@ -3048,7 +3053,7 @@ def main() -> None
 để phép đo chạy trên đúng loại việc nó mô tả, chứ không phải trên trang text bình thường.
 
 ```python
-# do_dau_cuoi.py (268 dòng)
+# do_dau_cuoi.py (224 dòng)
 CAU_HOI_MAC_DINH
 def _tom_tat(cac_giay)
 def _bang_profiling(tieu_de: str) -> None
@@ -3608,7 +3613,7 @@ duy kỹ thuật ở mức cao hơn hẳn "làm cho chạy".
 **2. Mỗi quyết định gắn với một số đo, không phải một cảm nhận.**
 `TRONG_SO_BM25 = 0.0` không phải vì "thấy BM25 không hợp", mà vì đo được nó phá truy xuất
 chéo ngôn ngữ. `num_predict` thích ứng bị **gỡ bỏ** sau khi đo lại. Việc ghi cả những thứ
-**đã thử và bỏ** vào comment là thói quen của kỹ sư giỏi.
+**đã thử và bỏ** vào tài liệu là thói quen của kỹ sư giỏi.
 
 **3. Tách bạch vai trò rất sạch ở vài chỗ khó.**
 Ba ví dụ đáng học: (a) BM25 có quyền recall nhưng không có quyền precision; (b) rerank đổi
@@ -3629,15 +3634,16 @@ Một phần lớn trong 335 test kiểm việc hệ thống **hỏng đúng cá
 
 ### (1) Một nguyên tắc được phát biểu nhưng chưa được thi hành
 
-`app._hien_thi_cach_hieu()` có một docstring rất mạnh:
+`app._hien_thi_cach_hieu()` được viết ra với một nguyên tắc rất mạnh (ARCHITECTURE.md §5.54):
 
 > *"KHÔNG được im lặng làm chuyện này. Đây là một PHỎNG ĐOÁN của hệ thống về ý người dùng,
 > và trình bày phỏng đoán như thể là sự thật đúng là lỗi mà §5.54 đã phải sửa một lần rồi."*
 
-Nhưng **phần thân đang bị comment lại**, nên hàm không vẽ gì. Tức hiện tại hệ thống **đang
-im lặng ghép ngữ cảnh hội thoại** — đúng điều docstring nói là không được làm. Đây có thể là
-một quyết định UI tạm thời, nhưng nó tạo ra mâu thuẫn giữa nguyên tắc đã tuyên bố và hành vi
-thực tế. Nên: hoặc bật lại, hoặc sửa docstring để nói rõ vì sao đã đổi ý.
+Nhưng **phần thân không còn lệnh vẽ nào** (bản nháp `st.caption()` từng bị comment lại và đã
+được gỡ), nên hàm không vẽ gì. Tức hiện tại hệ thống **đang im lặng ghép ngữ cảnh hội thoại**
+— đúng điều nguyên tắc trên nói là không được làm. Đây có thể là một quyết định UI tạm thời,
+nhưng nó tạo ra mâu thuẫn giữa nguyên tắc đã tuyên bố và hành vi thực tế. Nên: hoặc bật lại
+(bản nháp còn trong lịch sử git), hoặc ghi rõ vì sao đã đổi ý.
 
 ### (2) "Tìm kiếm lai" trong tài liệu, nhưng thực tế nhánh từ khoá đang tắt
 
@@ -3722,7 +3728,7 @@ trong khi tab khác đang hỏi, không có khoá nào ngăn hai bên ghi/đọc
 ### (9) Hai chi tiết phụ thuộc vào hành vi nội bộ của thư viện
 
 - `xoa_theo_nguon()` dựa vào việc `faiss.IndexFlatIP.remove_ids()` **giữ nguyên thứ tự tương
-  đối** của các vector còn lại. Comment ghi *"đã kiểm chứng bằng test thủ công"*. Đây là một
+  đối** của các vector còn lại. Bất biến này mới chỉ được *kiểm chứng bằng test thủ công*. Đây là một
   chi tiết triển khai của FAISS, không phải một hợp đồng API được bảo đảm. Nên có một test
   **tự động** khẳng định bất biến này (dựng index nhỏ, xoá giữa, kiểm tra metadata còn khớp
   vector), vì nếu FAISS đổi hành vi ở phiên bản sau thì hỏng hóc sẽ **im lặng**.
@@ -3731,8 +3737,8 @@ trong khi tab khác đang hỏi, không có khoá nào ngăn hai bên ghi/đọc
 
 ### (10) Chi phí bảo trì của việc tham chiếu `§5.x`
 
-Comment trong code tham chiếu tới `ARCHITECTURE.md §5.11`, `§5.29`, `§5.54`, `§5.68`… rất
-nhiều lần. Đây là một cách liên kết code với lý do rất tốt **khi tài liệu đứng yên**, nhưng
+Các tài liệu tham chiếu chéo tới `ARCHITECTURE.md §5.11`, `§5.29`, `§5.54`, `§5.68`… rất
+nhiều lần. Đây là một cách liên kết rất tốt **khi tài liệu đứng yên**, nhưng
 nếu chèn thêm một mục vào giữa §5 thì mọi tham chiếu sau đó lệch, mà **không có gì phát hiện
 được** — lại đúng loại "lỗi im lặng" mà dự án ghét. Cân nhắc dùng nhãn ổn định
 (`§num-ctx`, `§citation-suy-doan`) thay cho số thứ tự.
@@ -3776,7 +3782,7 @@ Thứ tự ưu tiên gợi ý, từ rẻ-lợi-nhiều tới đắt:
 
 | # | Việc | Chi phí | Lợi ích |
 |---|---|---|---|
-| 1 | Bật lại `_hien_thi_cach_hieu` hoặc sửa docstring | rất thấp | xoá mâu thuẫn nguyên tắc ↔ hành vi |
+| 1 | Bật lại `_hien_thi_cach_hieu` hoặc ghi rõ vì sao bỏ | rất thấp | xoá mâu thuẫn nguyên tắc ↔ hành vi |
 | 2 | Ghim phiên bản `ollama` trong `requirements.txt` | rất thấp | tránh hỏng im lặng khi client đổi hành vi `think` |
 | 3 | Test tự động cho bất biến thứ tự của `remove_ids` | thấp | bịt một lỗi im lặng tiềm tàng |
 | 4 | Chạy đánh giá với `JUDGE_MODEL` khác họ | thấp (một lần chạy) | con số quan trọng cho báo cáo |
@@ -3793,10 +3799,10 @@ Thứ tự ưu tiên gợi ý, từ rẻ-lợi-nhiều tới đắt:
 Điểm đáng học nhất từ dự án này không phải là kiến trúc RAG — kiến trúc đó đã khá chuẩn mực
 và bạn tìm được ở nhiều nơi. Điểm đáng học là **thái độ với sai lầm**: mỗi lần hệ thống hỏng,
 tác giả không chỉ sửa, mà còn (a) tìm nguyên nhân gốc thay vì triệu chứng, (b) viết một cơ
-chế để lần sau nó không hỏng im lặng nữa, và (c) ghi lại nguyên nhân ngay tại chỗ trong code
-để người sau không "sửa lại cho gọn".
+chế để lần sau nó không hỏng im lặng nữa, và (c) ghi lại nguyên nhân vào tài liệu để người
+sau không "sửa lại cho gọn".
 
-Ba câu comment sau tóm gọn tinh thần đó, và đáng nhớ hơn bất kỳ dòng code nào:
+Ba câu sau tóm gọn tinh thần đó, và đáng nhớ hơn bất kỳ dòng code nào:
 
 > *"Một lớp lỗi mà hệ thống KHÔNG THỂ tự phát hiện thì mọi kết luận rút ra từ nó đều đáng ngờ."*
 

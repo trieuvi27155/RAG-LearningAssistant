@@ -64,6 +64,8 @@ rag-do-an/
 │   ├── metrics.py              # Precision@K, Recall@K, MRR, Faithfulness, Relevance, Citation
 │   ├── run_evaluation.py       # Chạy đánh giá, in bảng + xuất CSV
 │   ├── test_questions.json     # Bộ câu hỏi test (tự chuẩn bị, xem hướng dẫn bên dưới)
+│   ├── test_questions_held_out.json   # Bộ HELD-OUT: tài liệu chưa dùng để chỉnh tham số
+│   ├── ket_qua_danh_gia*.csv   # Kết quả đánh giá đã xuất (in-sample / held-out / lần trước)
 │   ├── tao_tai_lieu_mau.py     # Sinh bộ tài liệu mẫu độc lập để đo (dài/ngắn/bảng/ảnh)
 │   ├── kiem_dinh_judge.py      # Đo độ tin cậy của CHÍNH thước đo Faithfulness
 │   ├── kiem_dinh_doi_chieu.py  # Đo độ tin cậy của cơ chế phát hiện mâu thuẫn
@@ -83,7 +85,10 @@ rag-do-an/
 ├── requirements.txt
 ├── .env.example
 ├── README.md
-└── ARCHITECTURE.md
+├── ARCHITECTURE.md
+├── HUONG_DAN_TOAN_TAP.md       # Hướng dẫn toàn tập, viết cho người chưa đọc code bao giờ
+├── KET_QUA_DO_DAC.md           # Toàn bộ số liệu đo đạc kèm cách tái lập
+└── chan_doan_rag.md            # Ghi chép chẩn đoán truy xuất kém trên tài liệu mới
 ```
 
 ## Cài đặt và chạy
@@ -576,7 +581,7 @@ khó là không báo động trên hai đoạn chỉ bổ sung cho nhau. Chi ti�
 
 ## Các quyết định kỹ thuật quan trọng
 
-Lý do đầy đủ nằm trong comment ngay tại chỗ trong code và ở ARCHITECTURE.md §5. Tóm tắt:
+Lý do đầy đủ nằm ở ARCHITECTURE.md §5. Tóm tắt:
 
 - **`IndexFlatIP` thay vì `IndexFlatL2`**: vector đã chuẩn hoá nên inner product == cosine
   similarity — đúng thước đo ngữ nghĩa cần dùng, thay vì khoảng cách Euclid thô.

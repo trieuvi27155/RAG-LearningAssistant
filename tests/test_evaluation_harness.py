@@ -1,8 +1,4 @@
-"""Test cho khung đo (evaluation/run_evaluation.py) - logic thuần, không cần model/Ollama.
-
-Khung đo là thứ mọi quyết định "giữ hay bỏ thay đổi này" dựa vào, nên bản thân nó sai thì
-mọi kết luận sau đó đều sai theo mà không có dấu hiệu nào. Vì vậy nó cần test riêng.
-"""
+"""Test cho khung đo (evaluation/run_evaluation.py) - logic thuần, không cần model/Ollama."""
 
 import csv
 import sys
@@ -44,7 +40,7 @@ def test_trung_binh_bo_qua_o_thieu_du_lieu():
     """CSV của lần chạy CŨ có thể thiếu cột metric mới thêm sau này - nếu _trung_binh nổ
     hoặc coi ô trống là 0 thì phần so sánh trước/sau sẽ ra kết luận sai."""
     cac_muc = [{"diem": 1.0}, {"diem": ""}, {}, {"diem": 0.5}]
-    assert _trung_binh(cac_muc, "diem") == 0.75  # chỉ tính 1.0 và 0.5
+    assert _trung_binh(cac_muc, "diem") == 0.75
     assert _trung_binh([], "diem") == 0.0
     assert _trung_binh([{}], "diem") == 0.0
 
@@ -67,12 +63,10 @@ def test_so_sanh_in_dung_chenh_lech(capsys):
         so_sanh_voi_ban_truoc(moi, cu)
         ra = capsys.readouterr().out
 
-    assert "+0.40" in ra          # precision tăng 0.4
-    assert "+3.00" in ra          # độ trễ tăng 3 giây
+    assert "+0.40" in ra
+    assert "+3.00" in ra
     dong_precision = next(d for d in ra.splitlines() if d.startswith("precision_at_k"))
     dong_do_tre = next(d for d in ra.splitlines() if d.startswith("do_tre_giay"))
-    # Cùng là "tăng" nhưng ý nghĩa ngược nhau: precision tăng là TỐT, độ trễ tăng là XẤU.
-    # Đây chính là chỗ dễ đọc nhầm dấu nhất khi cân nhắc đánh đổi accuracy/latency.
     assert "✔" in dong_precision
     assert "✘" in dong_do_tre
 
@@ -97,8 +91,8 @@ def test_bang_theo_nhom_tach_dung_nhom(capsys):
 
     assert "dai" in ra and "ngan" in ra
     dong_dai = next(d for d in ra.splitlines() if d.startswith("dai"))
-    assert "0.50" in dong_dai  # trung bình của 1.0 và 0.0
-    assert "2" in dong_dai.split()[1]  # đếm đúng 2 câu trong nhóm
+    assert "0.50" in dong_dai
+    assert "2" in dong_dai.split()[1]
 
 
 def test_bang_theo_nhom_bo_qua_khi_bo_cau_hoi_chua_khai_bao_nhom(capsys):
@@ -108,9 +102,8 @@ def test_bang_theo_nhom_bo_qua_khi_bo_cau_hoi_chua_khai_bao_nhom(capsys):
 
 
 def test_bo_qua_so_sanh_khi_khac_bo_cau_hoi(tmp_path, capsys):
-    """Đã gặp thực tế: file kết quả cũ còn sót lại từ một bộ TÀI LIỆU KHÁC, bảng chênh lệch
-    vẫn in ra với những con số trông thuyết phục nhưng vô nghĩa - đúng loại sai lệch khiến
-    người ta kết luận nhầm về việc thay đổi vừa rồi có ích hay không."""
+    """Bỏ qua bảng so sánh khi file kết quả cũ thuộc bộ câu hỏi khác, vì các con số chênh lệch
+    khi đó vô nghĩa."""
     cu, moi = tmp_path / "cu.csv", tmp_path / "moi.csv"
     _viet_csv(cu, [{**_dong(p=0.9, r=0.9), "cau_hoi": "Thư viện số ra đời năm nào?"}])
     _viet_csv(moi, [{**_dong(p=0.4, r=0.4), "cau_hoi": "What is the bias-variance decomposition?"}])
@@ -131,15 +124,6 @@ def test_van_so_sanh_khi_cung_bo_cau_hoi(tmp_path, capsys):
     assert "Chênh lệch" in ket_qua
     assert "BỎ QUA" not in ket_qua
 
-
-# ======================================================================
-# Bộ HELD-OUT phải THẬT SỰ held-out
-# ======================================================================
-# Giá trị duy nhất của bộ này nằm ở chỗ nó KHÔNG dính dáng gì tới việc hiệu chỉnh tham số.
-# Cái làm nó mất giá trị lại là một thao tác vô hại trông thấy: thêm vào đây một câu hỏi về
-# tài liệu đã có trong bộ in-sample. Lúc đó khoảng cách in-sample/held-out - con số dùng để
-# đo mức overfit của cả hệ thống (§5.64) - thu hẹp lại vì lý do hoàn toàn giả, và không ai
-# nhận ra. Test này là thứ duy nhất chặn được việc đó.
 
 import json
 
@@ -171,9 +155,8 @@ def test_bo_held_out_khong_dung_chung_cau_hoi_nao():
 
 
 def test_bo_held_out_du_lon_va_du_da_dang_de_so_sanh_duoc():
-    """Hai bộ phải so được với nhau: cùng cấu trúc trường, và bộ held-out phải phủ đủ các
-    nhóm câu hỏi của bộ in-sample. Thiếu nhóm nào thì bảng tách nhóm của hai bộ không đặt
-    cạnh nhau được, mà đó lại chính là chỗ chênh lệch lộ ra rõ nhất."""
+    """Bộ held-out phải cùng cấu trúc trường và phủ đủ các nhóm câu hỏi của bộ in-sample thì hai
+    bảng mới đặt cạnh nhau so sánh được."""
     ngoai_mau = _nap(config.TEST_QUESTIONS_HELD_OUT_FILE)
 
     assert len(ngoai_mau) >= 15, "dưới 15 câu thì chênh lệch đo được lẫn vào nhiễu"

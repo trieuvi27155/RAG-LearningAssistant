@@ -1,7 +1,4 @@
-"""Test cho nhánh tìm kiếm theo từ khoá (BM25) - phần bù cho tìm kiếm vector.
-
-Không cần model embedding nên chạy rất nhanh.
-"""
+"""Test cho nhánh tìm kiếm theo từ khoá (BM25) - phần bù cho tìm kiếm vector."""
 
 import sys
 from pathlib import Path
@@ -51,9 +48,8 @@ def test_tim_kiem_tra_ve_rong_khi_khong_co_tu_nao_trung():
 
 
 def test_diem_luon_duong():
-    """Bản BM25 nguyên gốc có thể ra IDF ÂM với từ xuất hiện ở quá nửa số tài liệu, khiến
-    một từ phổ biến lại TRỪ điểm của chính đoạn chứa nó - biến thể đang dùng phải tránh
-    được điều đó."""
+    """Biến thể BM25 đang dùng phải luôn cho điểm dương - bản nguyên gốc có thể ra IDF âm với từ
+    xuất hiện ở quá nửa số tài liệu."""
     van_ban = ["pháp luật là gì", "pháp luật do ai ban hành", "pháp luật và đạo đức"]
     bm25 = BM25(van_ban)
     for _, diem in bm25.tim_kiem("pháp luật", top_n=3):
@@ -63,15 +59,6 @@ def test_diem_luon_duong():
 def test_corpus_rong_khong_gay_loi():
     assert BM25([]).tim_kiem("bất kỳ", top_n=5) == []
 
-
-# ======================================================================
-# BM25 ở vai trò CỨU HỘ (recall-only) trong pipeline
-# ======================================================================
-# Kết quả đo trên corpus song ngữ thật cho thấy BM25 gây HẠI khi được RRF cho quyền xếp
-# hạng ngang dense (xem config.TRONG_SO_BM25). Nhưng cái hại đó đến từ QUYỀN XẾP HẠNG, không
-# phải từ việc BM25 tìm sai. Vì vậy nó được giữ lại ở đúng một vai trò: bơm ứng viên vào tập
-# đưa đi rerank, với điểm RRF bằng 0 nên tự nó không đẩy được gì lên - cross-encoder mới là
-# nơi quyết định. Hai test dưới đây khoá chặt đúng hai nửa của hợp đồng đó.
 
 import numpy as np
 import pytest
@@ -111,8 +98,6 @@ def _store_hai_doan():
          "noidung": "Điều 15 quy định cụ thể về nghĩa vụ nộp thuế của công dân."},
     ]
     store = VectorStore(dimension=_SO_CHIEU)
-    # Chunk 1 (đoạn ĐÚNG) cố ý cho vector LỆCH hẳn khỏi câu hỏi: đúng tình huống mà từ khoá
-    # hiếm bị embedding "hoà tan", tức chỗ dense một mình bó tay.
     store.them(
         np.array([[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]], dtype="float32"), cac_chunk
     )
@@ -121,9 +106,8 @@ def _store_hai_doan():
 
 @pytest.fixture
 def chi_lay_mot_ung_vien_dense(monkeypatch):
-    """Ép nhánh dense chỉ lấy về đúng 1 ứng viên, để đoạn còn lại CHỈ có thể vào tập ứng
-    viên qua đường cứu hộ của BM25. Không ép thì store nhỏ nên dense lấy hết, và test không
-    kiểm được gì."""
+    """Ép nhánh dense chỉ lấy về đúng 1 ứng viên, để đoạn còn lại chỉ có thể vào tập ứng viên
+    qua đường cứu hộ của BM25."""
     monkeypatch.setattr(config, "HE_SO_OVER_FETCH", 1)
     monkeypatch.setattr(config, "SO_UNG_VIEN_TOI_THIEU", 1)
     monkeypatch.setattr(config, "TRONG_SO_BM25", 0.0)

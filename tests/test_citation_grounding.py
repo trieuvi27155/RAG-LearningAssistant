@@ -1,9 +1,4 @@
-"""Test cho việc kiểm chứng citation: câu nào dẫn đoạn nào, và đoạn đó có chống lưng không.
-
-Phần tách câu-theo-trích-dẫn là logic thuần tuý nên test trực tiếp. Phần chấm điểm phải gọi
-LLM nên thay judge bằng hàm giả - thứ cần kiểm ở đây là cách ghép cặp và cách tính trung
-bình, không phải chất lượng chấm điểm của model.
-"""
+"""Test cho việc kiểm chứng citation: câu nào dẫn đoạn nào, và đoạn đó có chống lưng không."""
 
 import sys
 from pathlib import Path
@@ -20,10 +15,6 @@ def _chunk(trang: int, doan_khop: str):
     return {"nguon": "a.pdf", "trang": trang, "noidung": doan_khop,
             "doan_khop": doan_khop, "diem_similarity": 0.9}
 
-
-# ======================================================================
-# Ghép câu với số trích dẫn nó dẫn
-# ======================================================================
 
 def test_ghep_dung_cau_voi_so_trich_dan():
     """Biết "LLM dẫn đoạn [2]" là chưa đủ - phải biết nó dẫn [2] cho Ý NÀO thì mới đối
@@ -58,10 +49,6 @@ def test_cau_tra_loi_khong_dan_so_nao():
     assert cau_theo_trich_dan("") == {}
 
 
-# ======================================================================
-# Chấm điểm căn cứ
-# ======================================================================
-
 @pytest.fixture
 def judge_gia(monkeypatch):
     """Thay judge thật bằng hàm trả điểm theo từ khoá - kiểm cách ghép cặp và tính trung
@@ -81,7 +68,7 @@ def test_cham_diem_tung_cap_y_va_doan_duoc_dan(judge_gia):
     ket_qua = metrics.do_chinh_xac_trich_dan("Ý thứ nhất [1]. Ý thứ hai [2].", cac_chunk)
 
     assert ket_qua["so_cap_da_kiem"] == 2
-    assert ket_qua["diem"] == 0.5  # 1 cặp đúng, 1 cặp sai
+    assert ket_qua["diem"] == 0.5
     assert len(judge_gia) == 2
 
 
@@ -111,10 +98,6 @@ def test_khong_co_chunk_nao_thi_khong_goi_judge(judge_gia):
     assert not judge_gia
 
 
-# ======================================================================
-# Phân biệt TRÍCH DẪN THẬT với PHỎNG ĐOÁN của hệ thống
-# ======================================================================
-
 def _chunk_mau(n=3):
     return [
         {"nguon": f"tai_lieu_{i}.pdf", "trang": i, "noidung": f"Noi dung doan {i} du dai.",
@@ -132,11 +115,8 @@ def test_trich_dan_that_khong_bi_danh_dau_la_suy_doan():
 
 
 def test_model_khong_dan_nguon_thi_phai_danh_dau_la_suy_doan():
-    """Bản trước lặng lẽ hiện đoạn điểm cao nhất dưới nhãn "Nguồn" - tức trình bày PHỎNG ĐOÁN
-    của hệ thống như thể là căn cứ mà câu trả lời đã dùng. Người đọc yên tâm nhầm, và đó đúng
-    là kiểu trích dẫn gây hiểu lầm nhất với một hệ thống mà giá trị cốt lõi là kiểm chứng
-    được. Đo trên bộ 29 câu: 4 câu trả lời thật không gắn số nào - không phải hiếm.
-    """
+    """Khi model không dẫn nguồn, đoạn hiển thị phải được đánh dấu là phỏng đoán của hệ thống,
+    không trình bày như căn cứ mà câu trả lời đã dùng."""
     from rag.citation import loc_theo_tham_chieu
 
     kq = loc_theo_tham_chieu(_chunk_mau(), "Cong nghe thong tin.")
@@ -152,14 +132,9 @@ def test_cau_tu_choi_khong_kem_nguon_nao():
     assert loc_theo_tham_chieu(_chunk_mau(), config.CAU_TU_CHOI["vi"]) == []
 
 
-# ======================================================================
-# Đo bám ngữ cảnh ở TẦNG CHẠY THẬT (không chỉ tầng đánh giá)
-# ======================================================================
-
 def test_do_bam_ngu_canh_dung_chung_mot_ban_giua_runtime_va_danh_gia():
-    """Hai bản sao sẽ trôi khỏi nhau, và khi đó con số trong báo cáo nói về một thứ khác với
-    con số người dùng nhìn thấy - cùng lý do khiến sinh_cau_tra_loi() phải gọi lại đúng
-    generator của chế độ streaming."""
+    """Runtime và đánh giá phải dùng chung một bản của phép đo độ bám ngữ cảnh, nếu không con số
+    trong báo cáo nói về một thứ khác với con số người dùng nhìn thấy."""
     from evaluation.metrics import do_bam_ngu_canh as ban_danh_gia
     from rag.citation import do_bam_ngu_canh as ban_runtime
 
@@ -173,13 +148,6 @@ def test_bam_nguon_cao_khi_chep_nguyen_van_thap_khi_bia():
     assert do_bam_ngu_canh("Nha nuoc co ba dac diem co ban la tinh giai cap", ngu_canh) > 0.8
     assert do_bam_ngu_canh("Thu do nuoc Phap la Paris co nhieu bao tang", ngu_canh) == 0.0
 
-
-# ======================================================================
-# Số hiệu đoạn trích phải TRA NGƯỢC ĐƯỢC ở tầng hiển thị
-# ======================================================================
-# Người đọc thấy "[4]" trong câu trả lời thì phải tìm được nguồn [4] trong danh sách bên dưới.
-# Không có điều đó, câu trả lời "có dẫn nguồn" nhưng người đọc vẫn không biết dẫn nguồn NÀO -
-# tức mất đúng nửa sau của chuỗi kiểm chứng mà cả hệ thống này tồn tại để bảo đảm.
 
 def _bo_chunk():
     return [
@@ -197,8 +165,6 @@ def _bo_chunk():
 def test_moi_nguon_mang_dung_so_hieu_da_duoc_dan():
     kq = loc_theo_tham_chieu(_bo_chunk(), "Ý một [1]. Ý hai [2]. Ý ba [4].")
     assert [t["cac_so"] for t in kq] == [[1], [2], [4]]
-    # Số KHÔNG hiển thị cho người đọc (xem bo_so_trich_dan), nhưng vẫn phải đi theo dữ liệu:
-    # đó là căn cứ để biết câu trả lời dùng nguồn nào.
 
 
 def test_hai_doan_cung_mot_trang_giu_ca_hai_so():
@@ -210,9 +176,7 @@ def test_hai_doan_cung_mot_trang_giu_ca_hai_so():
 
 
 def test_cau_khong_dan_nguon_thi_KHONG_gan_so():
-    """Đoạn hiển thị lúc này là PHỎNG ĐOÁN của hệ thống, không phải căn cứ model đã dẫn.
-    Gắn "[1]" vào sẽ hàm ý model có dẫn nó - đúng kiểu trình bày phỏng đoán như thể là sự
-    thật mà §5.54 đã phải sửa một lần rồi."""
+    """Câu không dẫn nguồn thì không được gắn số, vì gắn số hàm ý model đã dẫn đúng đoạn đó."""
     kq = loc_theo_tham_chieu(_bo_chunk(), "Câu trả lời không có số nào.")
     assert kq[0]["la_suy_doan"] is True
     assert kq[0]["cac_so"] == []
@@ -226,15 +190,6 @@ def test_so_hieu_khop_dung_thu_tu_doan_trich_trong_prompt():
     assert kq[0]["cac_so"] == [4]
     assert (kq[0]["nguon"], kq[0]["trang"]) == (chunks[3]["nguon"], chunks[3]["trang"])
 
-
-# ======================================================================
-# Dạng gộp nhiều số trong MỘT cặp ngoặc: "[3,4,5]"
-# ======================================================================
-# Lỗi có thật, lộ ra trên một lần chạy thật: câu trả lời dẫn "[6]" và "[3,4,5]", regex cũ
-# (\[(\d+)\]) chỉ khớp "[6]" nên BA NGUỒN biến mất khỏi danh sách mà không có lỗi nào báo ra.
-# Nguy hiểm hơn phần hiển thị: cau_theo_trich_dan() dùng chung mẫu này để chấm Citation
-# accuracy, nên mọi ý dẫn theo dạng gộp đều bị bỏ khỏi phép chấm - thước đo âm thầm bỏ sót
-# đúng những câu trả lời dẫn nhiều nguồn cho một ý.
 
 def test_bat_duoc_dang_gop_nhieu_so_trong_mot_ngoac():
     from rag.citation import _cac_so_tham_chieu
@@ -264,10 +219,6 @@ def test_dang_gop_duoc_cham_citation_accuracy():
     }
 
 
-# ======================================================================
-# Bỏ số [n] khỏi văn bản HIỂN THỊ (dữ liệu gốc giữ nguyên)
-# ======================================================================
-
 def test_bo_so_trich_dan_khoi_cau_tra_loi():
     from rag.citation import bo_so_trich_dan
     assert bo_so_trich_dan("IoT là mạng lưới thiết bị [6].") == "IoT là mạng lưới thiết bị."
@@ -282,9 +233,8 @@ def test_bo_so_khong_dung_toi_moc_bang_hinh():
 
 
 def test_bo_so_giu_lai_ngoac_dang_do_khi_stream():
-    """Khi đang stream, mảnh cuối có thể cắt ngang giữa "[3,4]". Đẩy nguyên mảnh dở ra màn
-    hình thì người dùng thấy một mẩu ngoặc nhấp nháy rồi biến mất - cùng lý do khiến việc bóc
-    thẻ <think> phải là máy trạng thái chứ không phải regex trên chuỗi hoàn chỉnh (§5.42)."""
+    """Khi đang stream, mảnh cuối có thể cắt ngang giữa một cụm số trích dẫn - phải giữ lại ngoặc
+    đang dở thay vì đẩy nguyên mảnh dở ra màn hình."""
     from rag.citation import bo_so_trich_dan
     assert bo_so_trich_dan("Nội dung đang chạy [3,") == "Nội dung đang chạy"
     assert bo_so_trich_dan("Nội dung đang chạy [") == "Nội dung đang chạy"

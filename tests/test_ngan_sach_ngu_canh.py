@@ -1,17 +1,4 @@
-"""Test cho NGÂN SÁCH CỬA SỔ NGỮ CẢNH (num_ctx) - bug im lặng nghiêm trọng nhất đã gặp.
-
-Ollama cấp mặc định 4096 token bất kể model hỗ trợ bao nhiêu, và khi prompt vượt quá thì
-nó KHÔNG báo lỗi mà cắt từ ĐẦU phần user content - tức xoá đúng các đoạn trích liên quan
-nhất, vì _ghep_prompt() xếp đoạn tốt nhất lên trước. Triệu chứng lộ ra là "câu trả lời
-ngắn" và "truy xuất kém trên tài liệu mới", cả hai đều dẫn người sửa đi sai hướng.
-
-Vì vậy thứ cần test ở đây không phải chất lượng câu trả lời (không đo được bằng unit test)
-mà là ba điều tất định:
-  1. num_ctx CÓ MẶT trong options gửi lên Ollama - thiếu nó là quay lại đúng bug.
-  2. Cửa sổ được nới khi prompt dài, và không bao giờ vượt trần RAM đã đặt.
-  3. Bộ đếm token thật do máy chủ trả về được ghi nhận lại, để lần sau lỗi này không còn
-     im lặng nữa.
-"""
+"""Test cho NGÂN SÁCH CỬA SỔ NGỮ CẢNH (num_ctx) - bug im lặng nghiêm trọng nhất đã gặp."""
 
 import sys
 from pathlib import Path
@@ -56,22 +43,16 @@ def _tao_pipeline(cac_manh, noi_dung_chunk="Nội dung tài liệu đủ dài đ
     return pipeline
 
 
-# ======================================================================
-# Tính num_ctx
-# ======================================================================
-
 def test_uoc_luong_token_luon_du_chu_khong_thieu():
-    """Ước lượng chỉ dùng để CẤP PHÁT ngân sách: cấp dư thì vô hại, cấp thiếu thì tái tạo
-    lại đúng bug. Nên tỷ lệ ký tự/token phải đặt thấp hơn giá trị đo được cho tiếng Việt
-    (~2.5), tức ước lượng ra SỐ TOKEN LỚN HƠN thực tế."""
+    """Ước lượng token phải luôn cấp dư chứ không cấp thiếu, nên tỷ lệ ký tự/token đặt thấp hơn
+    giá trị đo được cho tiếng Việt."""
     assert config.SO_KY_TU_MOI_TOKEN_UOC_LUONG < 2.5
     assert _uoc_luong_so_token("x" * 1000) > 1000 / 2.5
 
 
 def test_num_ctx_khong_bao_gio_duoi_muc_cau_hinh(monkeypatch):
-    """Sàn = OLLAMA_NUM_CTX. Prompt ngắn KHÔNG được co cửa sổ lại: Ollama coi num_ctx là
-    một phần định danh của model đang nạp, đổi giá trị giữa hai lượt hỏi khiến nó nạp lại
-    model (hàng chục giây trên CPU)."""
+    """num_ctx không bao giờ được xuống dưới mức cấu hình OLLAMA_NUM_CTX, vì đổi giá trị giữa
+    hai lượt hỏi khiến Ollama nạp lại model."""
     monkeypatch.setattr(config, "OLLAMA_NUM_CTX", 16384)
     assert _tinh_num_ctx(10) == 16384
     assert _tinh_num_ctx(5000) == 16384
@@ -84,7 +65,6 @@ def test_num_ctx_duoc_noi_khi_prompt_qua_dai(monkeypatch):
     monkeypatch.setattr(config, "OLLAMA_NUM_CTX_TOI_DA", 65536)
     monkeypatch.setattr(config, "OLLAMA_DU_PHONG_TOKEN_SINH", 4000)
 
-    # 8192 không đủ cho prompt 9000 token + 4000 token dự phòng -> phải nới lên bậc kế tiếp.
     assert _tinh_num_ctx(9000) == 16384
     assert _tinh_num_ctx(30000) == 65536
 
@@ -99,10 +79,6 @@ def test_num_ctx_bi_chan_boi_tran_ram(monkeypatch, caplog):
         assert _tinh_num_ctx(100000) == 16384
     assert any("OLLAMA_NUM_CTX_TOI_DA" in r.getMessage() for r in caplog.records)
 
-
-# ======================================================================
-# num_ctx thật sự đi tới Ollama
-# ======================================================================
 
 def test_num_ctx_co_trong_options_gui_len_ollama(monkeypatch):
     """Test QUAN TRỌNG NHẤT của file này: thiếu đúng một khoá trong dict options là quay
@@ -119,9 +95,8 @@ def test_num_ctx_co_trong_options_gui_len_ollama(monkeypatch):
 
 
 def test_ghi_nhan_bo_dem_token_that_cua_may_chu(monkeypatch):
-    """prompt_eval_count là con số DUY NHẤT chứng minh được prompt có bị cắt hay không.
-    Không ghi lại nó thì lớp lỗi này không quan sát được, và mọi kết luận rút ra từ chất
-    lượng câu trả lời đều thiếu căn cứ."""
+    """Phải ghi nhận prompt_eval_count của máy chủ - con số duy nhất chứng minh được prompt có
+    bị cắt hay không."""
     monkeypatch.setattr(config, "NGUONG_DIEM_TOI_THIEU", 0.0)
     monkeypatch.setattr(config, "TY_LE_GIU_SO_VOI_DIEM_CAO_NHAT", 0.0)
     pipeline = _tao_pipeline([
