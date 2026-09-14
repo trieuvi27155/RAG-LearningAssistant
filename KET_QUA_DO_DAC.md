@@ -5,6 +5,11 @@
 Mọi con số trong file này đều đo lại trên **cùng một index**, bằng chính các script trong
 `evaluation/`. Phần nào không đo được thì ghi rõ là không đo được, không suy đoán thay.
 
+> **Đây là nguồn số liệu chuẩn của dự án.** [`ARCHITECTURE.md`](ARCHITECTURE.md) §5 giải thích
+> *vì sao* mỗi quyết định được chọn, kèm bảng đo ở **thời điểm** ra quyết định — nhiều bảng
+> trong đó đo trên corpus nhỏ hơn hoặc trước khi có GPU, nên khi hai bên lệch nhau thì file này
+> là bên đúng. [`README.md`](README.md) là bản tóm tắt ngắn cho người đọc lần đầu.
+
 ---
 
 ## 1. Môi trường đo
@@ -19,20 +24,21 @@ Mọi con số trong file này đều đo lại trên **cùng một index**, b�
 | faiss | 1.15.0 |
 | sentence-transformers | 6.0.0 |
 | streamlit | 1.62.0 |
-| **torch** | **2.13.0+cu130 — CUDA 13.0 khả dụng** (§7.4) |
+| **torch** | **2.13.0+cu130 — CUDA 13.0 khả dụng** (§8) |
 | Driver NVIDIA | 610.74 · compute capability 12.0 (Blackwell) |
 
 > **ĐÃ THAY ĐỔI so với bản báo cáo trước.** Bản trước chạy `torch 2.13.0+cpu`, nên embedding
 > và cross-encoder rerank chạy **hoàn toàn trên CPU** trong khi GPU chỉ phục vụ Ollama — đó
 > là lý do phần truy xuất khi ấy tốn **11–12 giây/câu**. Sau khi chuyển sang bản CUDA
-> (§7.4), truy xuất còn **~2,6 giây/câu** và cho **kết quả giống hệt từng đoạn một**.
+> (§8.2), truy xuất khi đó còn **~2,6 giây/câu** và cho **kết quả giống hệt từng đoạn một**;
+> sau khi chia VRAM theo giai đoạn (§8.4) thì còn **0,45 giây/câu** (§8.7).
 >
 > **Mọi con số độ trễ ở §4–§6 dưới đây đo TRƯỚC thay đổi này** và được giữ nguyên làm mốc
-> đối chứng, không phải vì chúng còn mô tả đúng hệ thống hiện tại. Số mới nằm ở §7.4.
+> đối chứng, không phải vì chúng còn mô tả đúng hệ thống hiện tại. Số mới nằm ở §8.
 
 **Model sử dụng**
 
-| Vai trò | Model | Nơi chạy (trước → **sau §7.4**) |
+| Vai trò | Model | Nơi chạy (trước → **sau §8**) |
 |---|---|---|
 | Embedding | `intfloat/multilingual-e5-base` (768 chiều) | CPU → **GPU** |
 | Rerank (cross-encoder) | `BAAI/bge-reranker-v2-m3` | CPU → **GPU** |
@@ -515,7 +521,7 @@ chấp nhận con số đầu tiên đo được.
 Bật lần lượt từng thay đổi trên **cùng một index** (12 tài liệu, 5.554 chunk, `TOP_K=6`,
 rerank BẬT, không bật chú thích ảnh). Chế độ tất định.
 
-> Index dùng ở §6 khác index ở §4 (ít tài liệu hơn, không có ảnh) nên **giá trị tuyệt đối
+> Index dùng ở §7 khác index ở §4 (ít tài liệu hơn, không có ảnh) nên **giá trị tuyệt đối
 > không so trực tiếp với §4 được**. Mục đích ở đây là so **chênh lệch giữa các cấu hình**
 > trên cùng một điều kiện, và điều đó thì hợp lệ.
 
@@ -952,12 +958,13 @@ chính máy làm đồ án:
    hơn Flat ~10 lần, nhưng IVF giữ recall **0,97** còn HNSW chỉ **0,61** — và recall của HNSW
    tụt dần khi corpus to lên nếu giữ nguyên `efSearch`: 0,87 → 0,74 → 0,61.
 
-> **Cách đo có một điểm phải nói ra khi trích vào báo cáo:** vector dùng để đo là vector ngẫu
-> nhiên đã chuẩn hoá, không phải embedding thật. Hợp lệ cho phần **độ trễ** (thời gian nhân ma
-> trận không phụ thuộc nội dung), nhưng làm **recall** của HNSW/IVF bị đo thiệt — vector ngẫu
-> nhiên trong không gian 768 chiều gần như cách đều nhau, tức ca xấu nhất cho mọi thuật toán
-> xấp xỉ. Embedding thật gom cụm theo chủ đề nên recall thực tế sẽ cao hơn: **ngưỡng rút ra là
-> ngưỡng thận trọng.**
+> **Cách đo có một điểm phải nói ra khi trích vào báo cáo:** vector dùng để đo là vector giả
+> lập, không phải embedding thật — nhưng nó được sinh ra **có gom cụm theo chủ đề** (cosine nội
+> cụm ≈ 0,8, đúng khoảng đã đo trên corpus thật), chứ không phải ngẫu nhiên thuần. Chi tiết này
+> quyết định con số recall: vector ngẫu nhiên thuần trong không gian 768 chiều gần như luôn
+> vuông góc, tức ca xấu nhất cho mọi thuật toán xấp xỉ, và đo bằng dữ liệu đó thì HNSW ra recall
+> 0,17 — một con số không nói gì về hành vi thật (ARCHITECTURE.md §5.44). Phần **độ trễ** thì
+> không phụ thuộc nội dung vector nên hợp lệ trong cả hai cách sinh.
 
 Đổi index thì **bắt buộc** chạy lại `run_evaluation.py`: đoạn bị bỏ sót hoàn toàn có thể là
 đoạn chứa câu trả lời. Nhanh hơn mà trả lời sai thì không phải cải tiến.
@@ -1029,3 +1036,7 @@ Bật `LOG_PHAN_BO_DIEM=1` trong `.env` để in phân bố điểm từng lư�
 | Bộ held-out và cách đọc khoảng cách | §5.64 |
 | Khi chính thước đo là thứ sai | §5.65 |
 | Cách diễn giải các metric không tất định | ARCHITECTURE.md §5.46 · README.md |
+| Ingestion đọc một lượt + cache theo băm nội dung | §5.66 |
+| Ngân sách thích ứng lúc truy vấn | §5.67 |
+| GPU, chia VRAM giữa bốn model | §5.68 |
+| Ngưỡng quy mô FAISS (Flat vs IVF vs HNSW) | §5.44 |

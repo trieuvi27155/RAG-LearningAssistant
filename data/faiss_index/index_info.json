@@ -1,7 +1,6 @@
 {
   "bam_tai_lieu": {
-    "AttentionIsAllYouNeed.pdf": "bdfaa68d8984f0dc02beaca527b76f20",
-    "MMT_TiengViet.pdf": "2258d6a983e9e64e08555cfb0bfd1a91"
+    "CV_Nguyễn Thành Luân_TTS Tuyển dụng.pdf": "0102961db92db58da79082b43558c4f6"
   },
   "embedding_model": "intfloat/multilingual-e5-base",
   "chunk_size_tokens": 160,
@@ -9,6 +8,6 @@
   "nhan_dien_tieu_de": true,
   "trich_anh": true,
   "chu_thich_anh_vision": true,
-  "so_chunk": 239,
-  "thoi_diem_build": "2026-09-06 09:21:47"
+  "so_chunk": 6,
+  "thoi_diem_build": "2026-09-08 09:35:19"
 }

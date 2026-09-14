@@ -4,6 +4,12 @@ Tài liệu này tổng hợp bức tranh toàn cảnh của hệ thống. Lý d
 nằm ở mục §5 dưới đây, kèm số liệu đã đo. Code chỉ giữ docstring ngắn mô tả công dụng của
 từng hàm — phần lập luận không lặp lại ở đó.
 
+> **Nguồn số liệu chuẩn là [`KET_QUA_DO_DAC.md`](KET_QUA_DO_DAC.md)** — mọi con số ở đó đo trên
+> cùng một index, kèm môi trường đo và cách tái lập. Các bảng trong §5 dưới đây gắn với **thời
+> điểm** ra quyết định (nhiều bảng đo trên corpus nhỏ hơn, hoặc trước khi có GPU), nên chúng
+> giải thích *vì sao chọn như vậy* chứ không mô tả hiệu năng hiện tại. Khi hai bên lệch nhau,
+> `KET_QUA_DO_DAC.md` là bên đúng. Bản tóm tắt ngắn cho người đọc lần đầu: [README.md](README.md).
+
 ## Mục lục
 
 1. [Tổng quan kiến trúc](#1-tổng-quan-kiến-trúc)
@@ -121,7 +127,7 @@ Câu hỏi
    _phat_hien_ngon_ngu() → vi/en  ·  la_cau_hoi_kiem_chung() → prompt thường / KIỂM CHỨNG
              ▼
    nen_ngu_canh(): prompt vượt trần cửa sổ → bỏ các đoạn xếp hạng THẤP NHẤT (không bao giờ
-                   hạ num_ctx — §5.60, §5.67); num_predict cũng theo độ phức tạp câu hỏi
+                   hạ num_ctx — §5.60, §5.67); num_predict thì CỐ ĐỊNH (KET_QUA_DO_DAC.md §8.9)
              ▼
    Ollama chat(stream=True) → câu trả lời chạy dần (§5.42)
              ▼
@@ -597,6 +603,10 @@ Tầng 1 quét rộng lấy vài chục ứng viên, tầng 2 đọc kỹ vài c
 Chọn 30 vì +6 giây chỉ chiếm ~15% tổng thời gian trả lời. **Điểm cosine được GIỮ NGUYÊN**,
 rerank chỉ đổi THỨ TỰ CHỌN — trộn hai thang đo vào cùng một trường là kiểu lỗi rất khó lần ra.
 
+> Cột thời gian ở trên đo **trên CPU**. Sau khi reranker được đưa lên GPU (§5.68), 30 cặp mất
+> 1,18 s và tổng bước truy xuất còn 0,45 s — tức ~1,3% một lượt hỏi thay vì ~15%
+> (KET_QUA_DO_DAC.md §8.2, §8.7). Lựa chọn "30 ứng viên" vì thế càng an toàn hơn, không đổi.
+
 ### 5.25 Nhận diện tiêu đề để cắt chunk theo ranh giới ngữ nghĩa
 Tiêu đề được đưa lên **đầu** danh sách separator vì nó là ranh giới ngữ nghĩa mạnh nhất.
 Ba định dạng, ba mức tin cậy: DOCX (`style.name` bắt đầu bằng `"Heading"`) và PPTX
@@ -788,6 +798,11 @@ hoặc gần như không có chữ mà lại có ảnh), không quét bừa. *(M
 ### 5.38 Kết quả cuối trên bộ tài liệu thật
 13 tài liệu, 1221 trang, **5642 chunk**, 29 câu hỏi song ngữ.
 
+> **Đây là đợt đo CŨ, giữ lại để đối chiếu.** Số liệu hiện hành đo trên corpus **26 tài liệu /
+> 9.285 chunk** với `TOP_K=4` và nằm ở [`KET_QUA_DO_DAC.md`](KET_QUA_DO_DAC.md) §4–§5. Hai bảng
+> **không so trực tiếp được** với nhau: khác corpus, khác `TOP_K`, và Recall@K đã đổi ý nghĩa
+> sau khi có mở rộng xuyên trang (§5.65).
+
 > Số chunk của cùng bộ tài liệu này thay đổi giữa các mục (5909 ở §5.30, 5876 ở §5.33, 5642 ở
 > đây) vì mỗi mục đo ở một thời điểm khác nhau, và chính các thay đổi ở khâu đọc/chia chunk đã
 > làm con số đó đổi. **5642 là con số cuối cùng**, ứng với phiên bản code hiện tại.
@@ -966,7 +981,7 @@ recall 0.17, một con số không nói gì về hành vi thật.
 | 100.000 | 12.9 ms | 293 MB | 1.5 ms / 0.61 | 1.3 ms / 0.97 |
 
 - **Tốc độ:** ~129 µs cho mỗi 1.000 chunk → ngưỡng 200 ms là **≈1,5 triệu chunk**. Corpus hiện
-  tại ở **0,4%** ngưỡng đó.
+  tại (9.285 chunk) mới ở **0,6%** ngưỡng đó.
 - **Bộ nhớ — ràng buộc THẬT:** 2,9 MB mỗi 1.000 chunk → mốc thực tế là **≈700.000 chunk
   (≈2 GB RAM)**, tức khoảng **145.000 trang** với mật độ 4,8 chunk/trang. RAM chạm trần trước
   độ trễ khoảng gấp đôi.
@@ -1686,8 +1701,8 @@ bộ đo đủ lớn — một lý do cụ thể để bỏ công mở rộng he
 
 *P@K KHÔNG so được giữa hai bộ, và phải nói ra thay vì để nó nằm im trong bảng.* Precision@K
 phụ thuộc trực tiếp vào số trang đúng mỗi câu: bộ in-sample trung bình **2.84** trang/câu, bộ
-held-out chỉ **1.45**. Với `TOP_K=6` (giá trị lúc đo), một câu chỉ có 1 trang đúng thì P@K trần đã rất thấp
-bất kể hệ thống tốt đến đâu. Chênh lệch +0.315 vì thế phần lớn là **hiện vật của cách ra đề**,
+held-out chỉ **1.20**. Với `TOP_K=4`, một câu chỉ có 1 trang đúng thì P@K trần đã là 0.25 bất kể
+hệ thống tốt đến đâu. Chênh lệch +0.256 vì thế phần lớn là **hiện vật của cách ra đề**,
 không phải bằng chứng overfit — đúng loại bẫy mà §5.65 vừa mắc một lần.
 
 Khoảng cách đó, kèm giải thích vì sao nó tồn tại, là thứ phân biệt một đồ án RAG với một
@@ -1861,7 +1876,7 @@ nhả GIL). Ba chỗ cố ý **không** song song hoá, và lý do của mỗi c
   Windows `spawn` còn chạy lại phần khởi tạo của `config`. Quan trọng hơn cả: **sau khi có
   cache + index tăng dần, lần build thứ hai gần như không còn đọc lại tài liệu nào** — song
   song hoá một việc đã không còn xảy ra là tối ưu nhầm chỗ.
-- **Số worker mặc định** suy từ `os.cpu_count()` nhưng chặn trên ở 4: mọi luồng đều đi qua
+- **Số worker mặc định** suy từ `os.cpu_count()` nhưng chặn trên ở 2 (§5.68): mọi luồng đi qua
   **một** máy chủ Ollama, mở hàng chục yêu cầu cùng lúc không làm model chạy nhanh hơn (nó
   vẫn xếp hàng) mà chỉ làm RAM/VRAM phình lên.
 
@@ -1933,7 +1948,8 @@ xét: `TOP_K = 4` là giá trị mà toàn bộ Recall@K, MRR và các ngưỡng
 hiệu chỉnh trên đó (§5.61, §5.64). Hạ nó cho "câu hỏi đơn giản" mà **không đo lại** chính là
 đổi độ chính xác lấy tốc độ — đúng điều mà cả đợt tối ưu này tồn tại để tránh. Ba thứ đã làm
 (ứng viên rerank, `num_predict`, nén ngữ cảnh) đều không đụng tới tập đoạn trích được chọn
-trong trường hợp bình thường. Khi nào có phép đo Recall@K theo từng nhóm độ phức tạp thì đây
+trong trường hợp bình thường. *(Phần `num_predict` thích ứng sau đó đã bị **gỡ bỏ hẳn** — nó
+cắt cụt câu trả lời mà khoản lợi bằng không; xem KET_QUA_DO_DAC.md §8.9.)* Khi nào có phép đo Recall@K theo từng nhóm độ phức tạp thì đây
 là việc tiếp theo đáng làm.
 
 ---
@@ -1972,7 +1988,7 @@ của mọi câu hỏi: người dùng chờ nó xong mới thấy chữ đầu 
 **Bằng chứng bắt buộc: nhanh hơn mà không đổi kết quả.** "Nhanh hơn nhưng ra kết quả khác" là
 một cách thất bại chứ không phải một cách tối ưu, nên điều này phải được chứng minh chứ không
 phải giả định. Chạy cùng 6 câu hỏi trên cùng index, một lần ép `cpu` một lần ép `cuda`:
-**6/6 câu trả về đúng những đoạn đó, đúng thứ tự đó**, lệch điểm similarity tối đa 1,79×10⁻⁷ —
+**6/6 câu trả về đúng những đoạn đó, đúng thứ tự đó**, lệch điểm similarity tối đa 2,38×10⁻⁷ —
 sai số làm tròn float32. Nhờ vậy mọi số chất lượng đã đo trước đây (§4, §5) vẫn còn hiệu lực
 mà không phải chạy lại toàn bộ.
 
@@ -1994,13 +2010,14 @@ rerank CPU. Điều đó chỉ nói được nếu hai vai trò tách riêng.
 
 | batch | chunk/s | VRAM đỉnh |
 |---:|---:|---:|
-| 16 | 329 | 1,21 GB |
-| 32 | 339 | 1,31 GB |
-| 128 | 337 | 1,92 GB |
-| 256 | **287** | 2,80 GB |
+| 16 | 320 | 1,21 GB |
+| 32 | **326** | 1,31 GB |
+| 64 | 325 | 1,52 GB |
+| 128 | 325 | 1,92 GB |
+| 256 | 324 | 2,80 GB |
 
-Thông lượng đứng yên từ 16 tới 128 rồi **tụt** ở 256, trong khi VRAM tăng đều — nút thắt không
-nằm ở độ song song của lô. Vì vậy hàm chọn batch chỉ dùng VRAM để **hạ** batch khi máy chật,
+Thông lượng **đứng yên** trong khoảng 320–326 chunk/s trên toàn dải, trong khi VRAM đỉnh tăng
+hơn gấp đôi — nút thắt không nằm ở độ song song của lô. Vì vậy hàm chọn batch chỉ dùng VRAM để **hạ** batch khi máy chật,
 không bao giờ nâng lên để "tận dụng GPU". Cùng một logic áp cho số worker: đo lại trên máy
 rảnh cho thấy **GPU đã bão hoà 84% ngay từ MỘT worker**, nên 2→4 worker không lợi gì và
 `SO_WORKER_VISION` mặc định đã đổi từ 4 xuống 2 (§8.5).
@@ -2033,7 +2050,7 @@ sai đó đủ để lật ngược kết luận:
 
 Hậu quả quan sát được khi để cả ba trên GPU (ứng dụng thật, không phải benchmark): VRAM còn
 trống **288 MB**, reranker mất ~58 giây mới nạp xong, lượt hỏi đầu tiên báo **50,8 giây** cho
-bước lẽ ra mất 2,6 giây — **không một dòng lỗi nào**.
+bước lẽ ra mất chưa tới một giây (§8.7 của KET_QUA_DO_DAC.md) — **không một dòng lỗi nào**.
 
 Vì vậy ranh giới giai đoạn làm hai việc chứ không phải một. Đo trên các lần build thật:
 
@@ -2089,12 +2106,13 @@ lên hoàn toàn khác:
 
 | Giai đoạn | Chi phí lớn nhất | Tỉ trọng |
 |---|---|---:|
-| Ingestion (cache rỗng) | chú thích ảnh bằng model vision | **88,5%** |
-| Ingestion (cache đầy) | — (3,35 s, nhanh hơn 77×) | — |
-| Query | LLM sinh chữ (chủ yếu là chuỗi suy luận của qwen3) | **~90%** |
+| Ingestion (cache rỗng, tài liệu nhiều hình) | chú thích ảnh bằng model vision | **89,8%** |
+| Ingestion (cache đầy) | — (3,48 s cho 1.209 chunk, nhanh hơn 81×) | — |
+| Query | LLM sinh chữ (chủ yếu là chuỗi suy luận của qwen3) | **~98%** |
 
-Truy xuất — thứ cả đợt tối ưu này nhắm vào — nay chỉ còn 2,6 giây và **không còn là chỗ đáng
-tối ưu tiếp**. Embedding, sau khi lên GPU, chỉ còn chiếm 3,3% chi phí ingestion. Mọi nỗ lực
+Truy xuất — thứ cả đợt tối ưu này nhắm vào — nay chỉ còn **0,45 giây** mỗi câu, tức khoảng
+**1,3%** một lượt hỏi, và **không còn là chỗ đáng tối ưu tiếp**. Embedding, sau khi lên GPU,
+chỉ còn chiếm 2,7% chi phí ingestion. Mọi nỗ lực
 tối ưu tiếp theo mà không nhắm vào hai ô in đậm ở trên đều là tối ưu nhầm chỗ, và bảng này
 tồn tại chính để chặn điều đó.
 
@@ -2144,3 +2162,4 @@ store = VectorStore(dimension=svc.dimension)
 ```
 
 Chi tiết cách chạy, cấu trúc thư mục và các giới hạn đã biết: xem [README.md](README.md).
+Toàn bộ số liệu đo đạc kèm cách tái lập từng con số: [KET_QUA_DO_DAC.md](KET_QUA_DO_DAC.md).
