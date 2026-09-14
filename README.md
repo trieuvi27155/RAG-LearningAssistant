@@ -133,7 +133,7 @@ Luồng dữ liệu đầy đủ và input/output từng module: [ARCHITECTURE.m
 rag-do-an/
 ├── app.py                  # Streamlit app chính
 ├── config.py               # Mọi tham số của hệ thống (đọc từ .env, có sẵn mặc định)
-├── rag/                    # Lõi hệ thống — 16 module, xem ARCHITECTURE.md §4–§5
+├── rag/                    # Lõi hệ thống — 15 module, xem ARCHITECTURE.md §4–§5
 ├── evaluation/             # Đánh giá + các script kiểm định/đo đạc
 │   ├── run_evaluation.py            # Precision@K, Recall@K, MRR, Faithfulness, Relevance, Citation
 │   ├── test_questions.json          # Bộ câu hỏi IN-SAMPLE
