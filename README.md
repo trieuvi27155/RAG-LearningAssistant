@@ -1,32 +1,68 @@
-# Hệ thống RAG hỏi đáp tài liệu học tập (tiếng Việt)
+# RAG — Hệ thống hỏi đáp tài liệu học tập tiếng Việt
 
 Đồ án tốt nghiệp: hệ thống hỏi đáp thông minh trên tài liệu học tập (PDF/PPTX/DOCX) bằng kỹ
-thuật RAG, chạy **hoàn toàn local** — không dùng API trả phí.
+thuật RAG (Retrieval-Augmented Generation), chạy **hoàn toàn local** — không dùng API trả phí.
 
-**Tính năng chính**
-
-- **Song ngữ Việt/Anh** — tự nhận diện ngôn ngữ câu hỏi và trả lời đúng ngôn ngữ đó.
-- **Trích dẫn nguồn** tới tên file + trang/slide, và chỉ hiện nguồn mà câu trả lời *thật sự*
-  tham chiếu.
-- **Hiểu câu hỏi nối tiếp** trong hội thoại — tất định, 0 lượt gọi LLM.
-- **Kiểm chứng khẳng định**: câu dạng "… đúng không?" cho phán quyết ĐÚNG / SAI /
-  KHÔNG ĐỀ CẬP kèm trích nguyên văn căn cứ, thay vì trả lời thuận theo giả định.
-- **Cảnh báo khi hai tài liệu nói ngược nhau**, kèm đủ toạ độ để tự mở ra đối chiếu.
-- Đọc được **tài liệu scan (OCR)**, PDF nhiều cột, bảng biểu và hình ảnh (model vision đọc
-  nội dung trong hình).
-- **Trả lời theo luồng** (streaming) và **module đánh giá định lượng** kèm bộ HELD-OUT để đo
-  mức overfit.
-
-**Tài liệu đi kèm**
-
-| File | Nội dung |
+| Tài liệu | Nội dung |
 |---|---|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Kiến trúc chi tiết, input/output từng module, và §5 — toàn bộ quyết định thiết kế kèm lý do |
-| [KET_QUA_DO_DAC.md](KET_QUA_DO_DAC.md) | Toàn bộ số liệu đo đạc: môi trường, tham số, kết quả, cách tái lập |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Kiến trúc chi tiết, luồng dữ liệu, input/output từng module, và §7 — toàn bộ quyết định thiết kế kèm lý do |
+| [KET_QUA_DO_DAC.md](KET_QUA_DO_DAC.md) | Nguồn số liệu chuẩn: môi trường đo, tham số, kết quả, cách tái lập |
 
 ---
 
-## Kiến trúc
+## 1. Overview
+
+Người dùng đưa tài liệu học tập của mình vào (giáo trình, slide bài giảng, báo cáo), hệ thống
+đọc và lập chỉ mục, sau đó trả lời câu hỏi **dựa trên chính các tài liệu đó** kèm trích dẫn tới
+tên file và số trang/slide.
+
+Toàn bộ mô hình (embedding, rerank, LLM, vision) chạy trên máy người dùng qua
+[Ollama](https://ollama.com) và `sentence-transformers` — tài liệu không rời khỏi máy và không
+phát sinh chi phí API.
+
+Hệ thống không chỉ trả lời: nó **từ chối khi không tìm thấy căn cứ**, **kiểm chứng khẳng định
+sai** thay vì thuận theo giả định, và **cảnh báo khi hai tài liệu nói ngược nhau**.
+
+---
+
+## 2. Objectives
+
+1. **Trả lời có căn cứ kiểm chứng được** — mỗi câu trả lời kèm nguồn tới tên file + trang/slide
+   đủ để người đọc tự mở tài liệu gốc đối chiếu, và chỉ hiện những nguồn mà câu trả lời *thật
+   sự* tham chiếu.
+2. **Chạy hoàn toàn local** — không phụ thuộc API trả phí, chạy được trên máy không có GPU.
+3. **Hỗ trợ song ngữ Việt/Anh**, kể cả truy xuất chéo ngôn ngữ (hỏi tiếng Việt, tài liệu tiếng
+   Anh và ngược lại).
+4. **Thà từ chối còn hơn bịa** — câu hỏi ngoài phạm vi tài liệu phải bị chặn ngay ở tầng truy
+   xuất, không gọi LLM.
+5. **Đo được chất lượng bằng số**, và quan trọng hơn: **đo được cả mức overfit** của chính hệ
+   thống bằng một bộ câu hỏi held-out trên tài liệu chưa từng dùng để chỉnh tham số.
+
+**Phạm vi đã chốt (cố ý không làm):** không có backend API riêng (FastAPI/Flask), không lưu
+lịch sử hội thoại qua nhiều phiên, corpus quy mô đồ án với 1 người dùng tại 1 thời điểm.
+
+---
+
+## 3. Features
+
+- **Hỏi đáp song ngữ Việt/Anh** — tự nhận diện ngôn ngữ câu hỏi và trả lời đúng ngôn ngữ đó.
+- **Trích dẫn nguồn** tới tên file + trang/slide, lọc theo nguồn mà câu trả lời đã dẫn.
+- **Hiểu câu hỏi nối tiếp** trong hội thoại ("Thế còn cái thứ hai?") — tất định, 0 lượt gọi LLM.
+- **Kiểm chứng khẳng định**: câu dạng "… đúng không?" cho phán quyết ĐÚNG / SAI / KHÔNG ĐỀ CẬP
+  kèm trích nguyên văn căn cứ.
+- **Cảnh báo mâu thuẫn giữa các nguồn** khi hai tài liệu nói ngược nhau, kèm đủ toạ độ để tự
+  mở ra đối chiếu. Hệ thống **không tự phân xử** nguồn nào đúng.
+- **Từ chối câu lạc đề** dựa trên điểm rerank, không gọi LLM.
+- **Đọc được tài liệu khó**: PDF scan (OCR), PDF nhiều cột, PDF bị dính chữ, bảng biểu, text box
+  trong DOCX, và hình ảnh (model vision đọc nội dung trong hình).
+- **Trả lời theo luồng** (streaming) — dấu hiệu đầu tiên sau ~2 giây thay vì spinner câm.
+- **Index tăng dần + cache theo băm nội dung** — thêm một tài liệu không phải xử lý lại cả
+  corpus.
+- **Module đánh giá định lượng** kèm bộ HELD-OUT và các script kiểm định từng cơ chế.
+
+---
+
+## 4. System Architecture
 
 Hai luồng dữ liệu tách biệt, dùng chung **1 Embedding Model** và **1 FAISS Index**. Không có
 backend API riêng — `app.py` (Streamlit) gọi thẳng các hàm/class ở `rag/*.py`.
@@ -54,13 +90,50 @@ Câu hỏi
 `tai_nguyen_gpu.py` cắt ngang cả hai luồng: dò phần cứng, chọn GPU/CPU cho từng vai trò, suy
 batch size và số worker từ VRAM còn trống, và nhả model vision ở ranh giới giữa hai giai đoạn.
 
-## Cấu trúc thư mục
+Luồng dữ liệu đầy đủ và input/output từng module: [ARCHITECTURE.md §3–§5](ARCHITECTURE.md).
+
+---
+
+## 5. Tech Stack
+
+**Mô hình sử dụng** — tất cả chạy local:
+
+| Vai trò | Model | Ghi chú |
+|---|---|---|
+| Embedding | `intfloat/multilingual-e5-base` | 768 chiều, đa ngôn ngữ, huấn luyện cho *retrieval* |
+| Rerank | `BAAI/bge-reranker-v2-m3` | cross-encoder, tầng lọc thứ 2 |
+| Sinh câu trả lời | `qwen3:4b` (Ollama) | |
+| OCR + chú thích ảnh | `qwen2.5vl:3b` (Ollama) | |
+| LLM-as-judge (evaluation) | `qwen3:4b` | đổi bằng `JUDGE_MODEL` |
+
+**Thư viện chính:**
+
+| Thư viện | Dùng ở đâu | Lý do chọn |
+|---|---|---|
+| `streamlit` | `app.py` | Giao diện web nhanh; `session_state` đúng nhu cầu "chỉ giữ lịch sử trong 1 phiên" |
+| `pdfplumber` | `document_loader` | Trích text theo từng trang PDF **kèm số trang** — giữ metadata ngay từ bước đọc |
+| `python-pptx` / `python-docx` | `document_loader` | Đọc cấu trúc slide/đoạn văn, không cần engine chuyển đổi trung gian |
+| `langchain-text-splitters` | `chunking` | `RecursiveCharacterTextSplitter` nhận `length_function` tuỳ chỉnh |
+| `sentence-transformers` | `embedding`, `reranker` | Chạy model local; đồng thời cho truy cập **tokenizer thật** của model |
+| `faiss-cpu` | `vector_store` | `IndexFlatIP` phù hợp quy mô corpus đồ án |
+| `ollama` | `rag_pipeline`, `metrics` | Gọi LLM local; `format` nhận JSON Schema để ép structured output |
+| `langdetect` | `rag_pipeline` | Phát hiện VI/EN — nhẹ, local |
+| `tiktoken` | `chunking` | **Chỉ là dự phòng** khi không lấy được tokenizer của model |
+| `pytest` | `tests/` | Framework test |
+
+**Cố ý KHÔNG dùng:** `python-dotenv` (tự viết loader nhỏ trong `config.py`), `rank_bm25` (tự cài
+để tự quyết cách tách từ tiếng Việt), `underthesea`/`VnCoreNLP` (nặng), `ChromaDB` và backend
+`FastAPI` (ngoài phạm vi). Lý do đầy đủ: [ARCHITECTURE.md §6](ARCHITECTURE.md).
+
+---
+
+## 6. Project Structure
 
 ```
 rag-do-an/
 ├── app.py                  # Streamlit app chính
 ├── config.py               # Mọi tham số của hệ thống (đọc từ .env, có sẵn mặc định)
-├── rag/                    # Lõi hệ thống — 16 module, xem ARCHITECTURE.md §3
+├── rag/                    # Lõi hệ thống — 16 module, xem ARCHITECTURE.md §4–§5
 ├── evaluation/             # Đánh giá + các script kiểm định/đo đạc
 │   ├── run_evaluation.py            # Precision@K, Recall@K, MRR, Faithfulness, Relevance, Citation
 │   ├── test_questions.json          # Bộ câu hỏi IN-SAMPLE
@@ -76,80 +149,116 @@ rag-do-an/
 ├── tests/                  # pytest — 405 test
 ├── .streamlit/config.toml  # Bảng màu giao diện
 ├── .env.example
+├── requirements.txt
 ├── ARCHITECTURE.md
 └── KET_QUA_DO_DAC.md
 ```
 
 ---
 
-## Cài đặt và chạy
+## 7. Requirements
 
-**Yêu cầu:** Python 3.11+ (đã kiểm chứng trên 3.14) · [Ollama](https://ollama.com) đã cài và
-đã `ollama pull qwen3:4b` (thêm `qwen2.5vl:3b` nếu muốn chú thích ảnh) · **không bắt buộc GPU**.
+| Hạng mục | Yêu cầu |
+|---|---|
+| Python | **3.11+** (đã kiểm chứng trên 3.14) |
+| Ollama | Đã cài và đang chạy — [ollama.com](https://ollama.com) |
+| Model Ollama | `qwen3:4b` (bắt buộc) · `qwen2.5vl:3b` (nếu bật OCR / chú thích ảnh) |
+| Dung lượng đĩa | ~3,3 GB cho model embedding + rerank tải từ HuggingFace, cộng dung lượng model Ollama |
+| GPU | **Không bắt buộc** — không có thì hệ thống tự lùi về CPU, chỉ chậm hơn |
+| Hệ điều hành | Đã kiểm chứng trên Windows 11 |
+
+Máy dùng để đo toàn bộ số liệu trong tài liệu này: Intel Core i5-14600KF (20 luồng) · 31,8 GB
+RAM · NVIDIA RTX 5060 8 GB.
+
+---
+
+## 8. Installation
 
 ```bash
+git clone <repo-url>
+cd rag-do-an
 pip install -r requirements.txt
-streamlit run app.py
+ollama pull qwen3:4b
+ollama pull qwen2.5vl:3b
 ```
 
-Lần đầu chạy, `sentence-transformers` tự tải model embedding (~1,1 GB) và rerank (~2,2 GB) từ
-HuggingFace về cache local — cần Internet đúng một lần. Sao chép `.env.example` → `.env` nếu
-muốn đổi giá trị mặc định (không bắt buộc).
+Lần chạy đầu tiên, `sentence-transformers` tự tải model embedding (~1,1 GB) và rerank (~2,2 GB)
+từ HuggingFace về cache local — cần Internet đúng một lần, các lần sau chạy offline được.
 
-**Có GPU NVIDIA thì nên cài PyTorch bản CUDA.** `pip install sentence-transformers` kéo về bản
-**CPU-only**, và đó là một cấu hình sai *không gây lỗi*: hệ thống vẫn trả lời đúng, chỉ chậm
-hơn nhiều lần. Đo trên RTX 5060: embedding **12,8×**, rerank **11,2×**, truy xuất đầu-cuối
-**9,0×** — mà **6/6 câu hỏi cho kết quả giống hệt** (KET_QUA_DO_DAC.md §8.2, §8.8).
+### Cài PyTorch bản CUDA (khuyến nghị nếu có GPU NVIDIA)
+
+`pip install -r requirements.txt` kéo về `torch` bản **CPU-only** — trên máy CÓ GPU, đó là một
+cấu hình sai *không gây lỗi*: hệ thống vẫn trả lời đúng, chỉ chậm hơn nhiều lần. Đo trên
+RTX 5060: embedding **12,8×**, rerank **11,2×**, truy xuất đầu-cuối **9,0×** — mà **6/6 câu hỏi
+cho kết quả giống hệt** (KET_QUA_DO_DAC.md §8.2, §8.8).
 
 ```bash
 pip install torch --index-url https://download.pytorch.org/whl/cu130
 ```
 
-Thay `cu130` cho khớp driver (`nvidia-smi` in ra CUDA Version; RTX 50xx cần ≥ cu128). Kiểm tra
-bằng `python -c "import torch; print(torch.cuda.is_available())"` — thanh bên của ứng dụng
-cũng hiện rõ đang chạy GPU hay CPU. **Không có GPU thì bỏ qua mục này**: hệ thống tự dò và lùi
-về CPU, không phải chỉnh gì.
+Thay `cu130` cho khớp driver (`nvidia-smi` in ra CUDA Version; RTX 50xx cần ≥ cu128). Kiểm tra:
+
+```bash
+python -c "import torch; print(torch.cuda.is_available())"
+```
+
+Thanh bên của ứng dụng cũng hiện rõ đang chạy GPU hay CPU. **Không có GPU thì bỏ qua mục này** —
+hệ thống tự dò và lùi về CPU, không phải chỉnh gì.
 
 ---
 
-## Sử dụng
+## 9. Configuration
 
-Giao diện theo lối ứng dụng chat: **thanh bên** (nguồn tài liệu) — **khung chính** (hỏi đáp).
+Mọi tham số nằm ở `config.py` và đều đọc được từ `.env` (không có `.env` thì dùng mặc định):
 
-1. **Thanh bên:** upload tài liệu, tick chọn nguồn được dùng để trả lời, rồi bấm
-   **"Đọc tài liệu"** → chạy toàn bộ luồng Ingestion và lưu index xuống `data/faiss_index/`.
-2. **Đặt câu hỏi** bằng tiếng Việt hoặc tiếng Anh — hoặc đưa ra một khẳng định để hệ thống
-   kiểm chứng ("Pháp luật ra đời trước nhà nước, đúng không?").
-3. Câu trả lời hiện **dần theo luồng**, kèm dòng số liệu độ trễ (*truy xuất · chữ đầu tiên ·
-   tổng*). Dưới câu trả lời là **nguồn** mà chính câu trả lời đó đã tham chiếu.
-4. **Hỏi nối tiếp được** — "Thế còn dấu hiệu thứ hai?" — hệ thống ghép ngữ cảnh hội thoại vào
-   truy vấn và **nói ra** việc đã làm vậy.
-5. Nút **＋ Hội thoại mới** xoá lịch sử đang hiển thị nhưng **giữ nguyên tài liệu và index**.
-   Lịch sử chat chỉ tồn tại trong phiên Streamlit hiện tại.
+```bash
+cp .env.example .env
+```
 
-**Chi phí xử lý tài liệu.** Thêm một tài liệu không phải trả giá cho cả corpus: mỗi file được
-ghi kèm băm nội dung vào `index_info.json`, nên "Đọc tài liệu" chỉ xử lý lại file **mới hoặc
-đã đổi nội dung**. Bộ nhớ đệm ở `data/cache/` giữ bốn thứ đắt nhất (kết quả đọc tài liệu, OCR,
-chú thích ảnh, vector embedding), tất cả khoá theo **băm nội dung** — nhờ vậy một hình dùng lại
-ở 20 slide chỉ tốn **một** lượt gọi model vision. Xoá cả thư mục `data/cache/` bất cứ lúc nào
-cũng an toàn: mọi thứ trong đó đều tính lại được. Đo thật: corpus 3 tài liệu nhiều hình mất
-**281,7 s** lần đầu và **3,48 s** khi cache đầy — nhanh hơn **81×**.
+**Các công tắc hay dùng:**
 
-**Các công tắc hay dùng** (đặt trong `.env`; danh sách đầy đủ ở `config.py`):
+| Biến | Mặc định | Tác dụng khi đặt `0` |
+|---|---|---|
+| `BAT_STREAMING` | 1 | tắt trả lời theo luồng |
+| `BAT_TRUY_VAN_NGU_CANH` | 1 | tắt hiểu câu hỏi nối tiếp |
+| `BAT_DOI_CHIEU_NGUON` | 1 | tắt cảnh báo mâu thuẫn giữa các nguồn |
+| `BAT_CHU_THICH_ANH` | 1 | tắt model vision đọc nội dung hình |
+| `BAT_OCR_DU_PHONG` | 1 | tắt OCR cho trang PDF đọc hỏng |
+| `BAT_RERANK` | 1 | tắt tầng cross-encoder xếp hạng lại |
+| `BAT_INDEX_TANG_DAN` | 1 | luôn build lại toàn bộ index |
+| `BAT_CACHE_INGESTION` | 1 | tắt cache (dùng khi cần **đo** chi phí build từ đầu) |
+| `BAT_PROFILING_INGESTION` | 1 | tắt bảng tổng kết thời gian từng bước sau mỗi lần build |
 
-| Biến | Tác dụng khi đặt `0` |
-|---|---|
-| `BAT_STREAMING` | tắt trả lời theo luồng |
-| `BAT_TRUY_VAN_NGU_CANH` | tắt hiểu câu hỏi nối tiếp |
-| `BAT_DOI_CHIEU_NGUON` | tắt cảnh báo mâu thuẫn giữa các nguồn |
-| `BAT_CHU_THICH_ANH` | tắt model vision đọc nội dung hình |
-| `BAT_INDEX_TANG_DAN` | luôn build lại toàn bộ index |
-| `BAT_CACHE_INGESTION` | tắt cache (dùng khi cần **đo** chi phí build từ đầu) |
-| `BAT_PROFILING_INGESTION` | tắt bảng tổng kết thời gian từng bước sau mỗi lần build |
+**Các tham số đáng chỉnh:**
+
+| Biến | Mặc định | Ý nghĩa |
+|---|---|---|
+| `OLLAMA_MODEL` / `JUDGE_MODEL` | `qwen3:4b` | model sinh câu trả lời / model chấm điểm |
+| `OLLAMA_HOST` | `http://localhost:11434` | đổi khi Ollama chạy ở máy/cổng khác |
+| `OLLAMA_NUM_CTX` | 16384 | cửa sổ ngữ cảnh — **đừng hạ** (xem §13) |
+| `TOP_K` | 4 | số đoạn trích gửi cho LLM; đặt 6 nếu ưu tiên độ chính xác hơn tốc độ |
+| `CHUNK_SIZE_TOKENS` / `CHUNK_OVERLAP_TOKENS` | 160 / 32 | đo bằng tokenizer thật của model |
+| `TRONG_SO_BM25` | 0.0 | BM25 tắt ở vai trò xếp hạng — bật lại nếu corpus của bạn khác |
+| `THIET_BI_EMBEDDING` / `THIET_BI_RERANK` | `auto` | ép `cpu`/`cuda` cho riêng từng vai trò |
+| `SO_WORKER_VISION` | 2 | số worker OCR/Vision — đo lại bằng `do_worker_gpu.py` |
+
+> **Đổi model embedding hoặc chunk size thì phải bấm "Đọc tài liệu" để build lại index.** Hệ
+> thống tự đối chiếu vân tay cấu hình trong `index_info.json` và cảnh báo nếu không khớp.
 
 ---
 
-## Kiểm thử
+## 10. How to Run
+
+**Chạy ứng dụng:**
+
+```bash
+streamlit run app.py
+```
+
+Mở `http://localhost:8501`. Ollama phải đang chạy ở tiến trình nền riêng — nó **không** tự khởi
+động cùng Streamlit.
+
+**Chạy test:**
 
 ```bash
 pytest tests/ -v
@@ -160,9 +269,45 @@ pytest tests/ -v
 `data/images/` sang thư mục tạm cho cả phiên test, nên không test nào ghi vào thư mục dữ liệu
 thật của dự án.
 
+**Chạy đánh giá** (sau khi đã build index — xem §12):
+
+```bash
+python evaluation/run_evaluation.py --nhanh        # chỉ truy xuất, TẤT ĐỊNH, vài phút
+python evaluation/run_evaluation.py                # đầy đủ, có gọi LLM — 60–90 phút cho 29 câu
+python evaluation/run_evaluation.py --khoang-cach  # cả hai bộ + mức overfit
+```
+
 ---
 
-## Đánh giá (Evaluation)
+## 11. Usage
+
+Giao diện theo lối ứng dụng chat: **thanh bên** (nguồn tài liệu) — **khung chính** (hỏi đáp).
+
+1. **Thanh bên:** upload tài liệu PDF/PPTX/DOCX, tick chọn nguồn được dùng để trả lời, rồi bấm
+   **"Đọc tài liệu"** → chạy toàn bộ luồng Ingestion và lưu index xuống `data/faiss_index/`.
+2. **Đặt câu hỏi** bằng tiếng Việt hoặc tiếng Anh — hoặc đưa ra một khẳng định để hệ thống
+   kiểm chứng ("Pháp luật ra đời trước nhà nước, đúng không?").
+3. Câu trả lời hiện **dần theo luồng**, kèm dòng số liệu độ trễ (*truy xuất · chữ đầu tiên ·
+   tổng*). Dưới câu trả lời là **nguồn** mà chính câu trả lời đó đã tham chiếu.
+4. **Hỏi nối tiếp được** — "Thế còn dấu hiệu thứ hai?" — hệ thống ghép ngữ cảnh hội thoại vào
+   truy vấn và **nói ra** việc đã làm vậy, để bạn biết mà hỏi lại nếu nó ghép nhầm chỗ.
+5. Nút **＋ Hội thoại mới** xoá lịch sử đang hiển thị nhưng **giữ nguyên tài liệu và index**.
+   Lịch sử chat chỉ tồn tại trong phiên Streamlit hiện tại.
+
+**Chi phí xử lý tài liệu.** Thêm một tài liệu không phải trả giá cho cả corpus: mỗi file được
+ghi kèm băm nội dung vào `index_info.json`, nên "Đọc tài liệu" chỉ xử lý lại file **mới hoặc
+đã đổi nội dung**. Bộ nhớ đệm ở `data/cache/` giữ bốn thứ đắt nhất (kết quả đọc tài liệu, OCR,
+chú thích ảnh, vector embedding), tất cả khoá theo **băm nội dung** — nhờ vậy một hình dùng lại
+ở 20 slide chỉ tốn **một** lượt gọi model vision, và đổi tên file không làm mất cache.
+
+Xoá cả thư mục `data/cache/` bất cứ lúc nào cũng **an toàn**: mọi thứ trong đó đều tính lại
+được, chỉ mất thời gian chứ không mất dữ liệu. Thanh bên có sẵn nút **"Xoá cache"**.
+
+---
+
+## 12. Evaluation / Results
+
+### Cách chạy đánh giá
 
 1. Build index từ tài liệu thật của bạn (qua UI).
 2. Điền câu hỏi test vào `evaluation/test_questions.json`:
@@ -184,22 +329,17 @@ thật của dự án.
      liệu khác nhau không".
    - Chưa có tài liệu để thử? `python evaluation/tao_tai_lieu_mau.py` sinh sẵn một bộ tài liệu
      đa dạng (dài/ngắn/có bảng/có ảnh) để chạy thử đường ống.
-3. Chạy:
-   ```bash
-   python evaluation/run_evaluation.py --nhanh        # chỉ truy xuất, TẤT ĐỊNH, vài phút
-   python evaluation/run_evaluation.py                # đầy đủ, có LLM — 60–90 phút cho 29 câu
-   python evaluation/run_evaluation.py --khoang-cach  # cả hai bộ + mức overfit
-   ```
-   Kết quả in ra bảng và xuất chi tiết ra `evaluation/ket_qua_danh_gia*.csv`.
+3. Chạy `run_evaluation.py` (xem §10). Kết quả in ra bảng và xuất chi tiết ra
+   `evaluation/ket_qua_danh_gia*.csv`.
 
 Bốn script kiểm định — mỗi cái đo độ tin cậy của **một** cơ chế trên bộ ca đã biết trước đáp
 án, và con số rút ra là thứ nên đặt cạnh tính năng trong báo cáo:
 
 ```bash
-python evaluation/kiem_dinh_judge.py                 # thước đo Faithfulness (§5.43)
-python evaluation/kiem_dinh_doi_chieu.py --so-lan 3  # cơ chế phát hiện mâu thuẫn (§5.59)
-python evaluation/kiem_dinh_viet_lai.py --chi-tang-1 # nhận diện câu nối tiếp (§5.58)
-python evaluation/do_quy_mo_index.py                 # ngưỡng quy mô FAISS trên máy bạn (§5.44)
+python evaluation/kiem_dinh_judge.py                 # thước đo Faithfulness (§7.43)
+python evaluation/kiem_dinh_doi_chieu.py --so-lan 3  # cơ chế phát hiện mâu thuẫn (§7.59)
+python evaluation/kiem_dinh_viet_lai.py --chi-tang-1 # nhận diện câu nối tiếp (§7.58)
+python evaluation/do_quy_mo_index.py                 # ngưỡng quy mô FAISS trên máy bạn (§7.44)
 ```
 
 ### Bộ HELD-OUT — đo mức overfit, không chỉ đo điểm
@@ -214,9 +354,7 @@ dùng để chỉnh bất kỳ tham số nào**. Chênh lệch giữa hai bộ *
 > **Quy tắc bất di bất dịch:** không bao giờ chỉnh tham số theo kết quả của bộ held-out. Chỉnh
 > một lần là nó trở thành bộ in-sample thứ hai và con số này mất sạch ý nghĩa.
 
----
-
-## Kết quả đo
+### Kết quả
 
 Corpus **26 tài liệu · 3.648 bản ghi trang · 9.285 chunk** (11 PDF · 9 DOCX · 6 PPTX).
 Chi tiết đầy đủ, môi trường đo và cách tái lập từng con số:
@@ -241,7 +379,7 @@ Kết quả chia làm bốn phần, và đó mới là thông tin có giá trị
 - **Chất lượng câu trả lời: không overfit**, nhưng kết luận này **đã từng bị đo SAI**: bộ
   held-out 22 câu cho khoảng cách +0,155, nhân đôi lên 44 câu thì co về +0,003, trong khi
   khoảng cách MRR lại **nở ra**. Thêm mẫu rồi xem khoảng cách nở ra hay co lại là phép thử rẻ
-  nhất để phân biệt tín hiệu thật với nhiễu (KET_QUA_DO_DAC.md §5.3 · ARCHITECTURE.md §5.64).
+  nhất để phân biệt tín hiệu thật với nhiễu (KET_QUA_DO_DAC.md §5.3 · ARCHITECTURE.md §7.64).
 - **P@K không so được giữa hai bộ**: nó phụ thuộc số trang đúng mỗi câu (in-sample 2,84
   trang/câu, held-out 1,20), nên +0,256 phần lớn là hiện vật của cách ra đề.
 
@@ -281,7 +419,7 @@ prompt, chạy 4 lần thì có lần model gắn 6 số trích dẫn, có lần
 "trang" cố định, nên file không có ngắt trang nào được coi là MỘT trang. Hai metric này so
 khớp theo (nguồn, trang), nên với file như vậy chỉ cần lấy về một chunk bất kỳ là
 Recall@K = 1,00 — bất kể chunk đó có chứa câu trả lời hay không. Với loại tài liệu này chỉ
-Citation accuracy còn mang thông tin (ARCHITECTURE.md §5.39).
+Citation accuracy còn mang thông tin (ARCHITECTURE.md §7.39).
 
 **3. Câu hỏi cố tình không có đáp án** (`cac_trang_dung: []`) luôn cho Precision@K/Recall@K = 0
 theo định nghĩa; Faithfulness của câu từ chối luôn được chấm 1,0, còn Answer Relevance có thể
@@ -296,76 +434,18 @@ là *"Faithfulness 0,980, đo bằng thước đo đã kiểm định đúng 7/7
 
 ---
 
-## Các quyết định kỹ thuật quan trọng
-
-Lý do đầy đủ kèm số liệu nằm ở [ARCHITECTURE.md §5](ARCHITECTURE.md). Mười điểm đáng nhớ nhất:
-
-- **`IndexFlatIP` thay vì `IndexFlatL2`**: vector đã chuẩn hoá nên inner product == cosine
-  similarity — đúng thước đo ngữ nghĩa cần dùng (§5.1).
-- **Model embedding `multilingual-e5-base`**: model huấn luyện cho *retrieval*, không phải cho
-  *paraphrase* như lựa chọn ban đầu — giới hạn 512 token thay vì 128; câu hỏi và tài liệu mã
-  hoá bằng 2 hàm riêng vì họ E5 cần tiền tố `query: `/`passage: ` khác nhau (§5.19).
-- **Chunk 160 token, overlap 32, đo bằng đúng tokenizer của model**: `tiktoken` đếm gấp ~1,9
-  lần trên tiếng Việt, khiến chunk nhỏ hơn dự định rất nhiều và nội dung bị băm vụn (§5.2,
-  §5.3, §5.18).
-- **Rerank bằng cross-encoder** trên 30 ứng viên: MRR 0,417 → 0,642. Điểm cosine được giữ
-  nguyên, rerank chỉ đổi thứ tự chọn (§5.24).
-- **BM25 mặc định TẮT** — một kết quả âm tính đo được: trên corpus song ngữ, BM25 không giúp gì
-  ngay trên sở trường của nó và gây hại nặng cho truy xuất chéo ngôn ngữ (0,703 → 0,536). Code
-  giữ nguyên, bật lại bằng `TRONG_SO_BM25` nếu corpus của bạn khác (§5.30).
-- **Từ chối câu lạc đề dựa trên điểm rerank, không phải cosine**: đã đo, không tồn tại ngưỡng
-  cosine nào tách được — câu tiếng Anh đúng chủ đề cho cosine *thấp hơn* câu tiếng Việt lạc đề
-  (§5.29, §5.57).
-- **Không trình bày phỏng đoán như thể là nguồn**: khi model không tự gắn số `[n]`, giao diện
-  nói rõ rằng đoạn hiện ra là đoạn hệ thống chọn chứ không phải nguồn câu trả lời đã dẫn
-  (§5.14, §5.54).
-- **Hiểu câu hỏi nối tiếp bằng cách TẤT ĐỊNH, không phải bằng LLM**: query rewriting bằng LLM
-  đã thử và thất bại đo được (`qwen3:4b` trả về rỗng 0/7 ca). Cách dùng hiện tại không tốn
-  lượt gọi model nào, tất định nên đo được bằng chính các metric tất định (§5.58).
-- **Ngữ cảnh quá lớn thì cắt ĐOẠN, không hạ `num_ctx`**: hạ `num_ctx` không làm prompt ngắn
-  lại, nó chỉ chuyển quyền quyết định cắt chỗ nào sang Ollama — mà Ollama luôn cắt từ **đầu**,
-  tức xoá đúng đoạn trích liên quan nhất (§5.60, §5.67).
-- **Dò phần cứng thay vì giả định**: `torch` bản CPU-only trên máy CÓ GPU là một cấu hình sai
-  **không gây lỗi**, nên hệ thống phải tự nói ra. Batch size và số worker suy từ VRAM còn
-  trống; hết ingestion là nhả model vision và đẩy embedding về CPU, vì ba model của giai đoạn
-  truy vấn cộng lại 8,07 GB không vừa card 7,96 GB — mà tràn VRAM thì *không báo lỗi* (§5.68).
-
----
-
-## Sự cố thường gặp
-
-**`ConnectError: [WinError 10061]` / `Failed to connect to Ollama`** — máy chủ Ollama chưa
-chạy. Ollama là tiến trình nền riêng, KHÔNG tự khởi động cùng `streamlit run app.py`: chưa bật
-thì hệ thống vẫn đọc và truy xuất tài liệu bình thường nhưng không sinh được câu trả lời nào.
-
-1. Mở ứng dụng **Ollama** (Windows: biểu tượng ở khay hệ thống), hoặc chạy `ollama serve`.
-2. Kiểm tra: `ollama list` — chưa thấy `qwen3:4b` thì `ollama pull qwen3:4b`.
-3. Ollama chạy ở máy/cổng khác thì sửa `OLLAMA_HOST` trong `.env`.
-
-**Câu trả lời nào cũng là "Không tìm thấy thông tin trong tài liệu"** — thường do bỏ tick hết
-nguồn ở thanh bên, hoặc chưa bấm **Đọc tài liệu** sau khi thêm tài liệu mới. Cũng có thể câu
-hỏi thật sự nằm ngoài phạm vi tài liệu — đó là hành vi đúng.
-
-**Câu trả lời cụt ngủn** — cửa sổ ngữ cảnh của Ollama mặc định chỉ 4096 token bất kể model hỗ
-trợ bao nhiêu, và nó chứa **prompt + thinking + câu trả lời**. Đo thật: một câu hỏi thường tốn
-**7.001 token**, câu yêu cầu "liệt kê đầy đủ" tốn **10.860** — gấp 2,7 lần cửa sổ mặc định, và
-model chạm trần rồi dừng **không có lỗi nào báo ra**. Đã sửa bằng `OLLAMA_NUM_CTX=16384`
-(ARCHITECTURE.md §5.60).
-
-**Đừng hạ `OLLAMA_NUM_CTX` để lấy lại tốc độ** — hạ `TOP_K` hoặc `NGAN_SACH_KY_TU_MOI_DOAN`
-thay vào đó. Hạ `num_ctx` không làm prompt ngắn đi, nó chỉ khiến prompt bị cắt trở lại.
-
----
-
-## Giới hạn đã biết
+## 13. Limitations
 
 - **Đổi model embedding thì phải bấm "Đọc tài liệu"** — quên build lại không gây lỗi (2 model
   có thể cùng số chiều) mà chỉ khiến kết quả sai âm thầm; hệ thống tự đối chiếu và cảnh báo
   trên UI, `run_evaluation.py` thì dừng hẳn.
 - **Mỗi câu hỏi mất trung vị ~35 giây** với `qwen3:4b` trên GPU, do model luôn sinh phần suy
   luận nội bộ dài trước khi trả lời — đặc tính của model, `/no_think` lẫn `think=False` đều
-  không rút ngắn được (§5.23). Streaming không rút ngắn tổng thời gian nhưng đưa dấu hiệu đầu
-  tiên về ~2 giây; câu bị từ chối ở tầng truy xuất thì không gọi LLM nên nhanh hơn hẳn.
+  không rút ngắn được. Streaming không rút ngắn tổng thời gian nhưng đưa dấu hiệu đầu tiên về
+  ~2 giây; câu bị từ chối ở tầng truy xuất thì không gọi LLM nên nhanh hơn hẳn.
+- **Đừng hạ `OLLAMA_NUM_CTX` để lấy lại tốc độ** — hạ `TOP_K` hoặc `NGAN_SACH_KY_TU_MOI_DOAN`
+  thay vào đó. Hạ `num_ctx` không làm prompt ngắn đi, nó chỉ chuyển quyền quyết định cắt chỗ
+  nào sang Ollama — mà Ollama luôn cắt từ **đầu**, tức xoá đúng đoạn trích liên quan nhất.
 - **PDF nặng công thức toán**: khi PDF nhúng font không kèm bảng ToUnicode, công thức bị đọc ra
   thành mã `(cid:NN)`. Hệ thống lọc bỏ rác này nhưng **không khôi phục được nội dung công
   thức** trừ khi bật OCR. Câu hỏi về khái niệm vẫn trả lời tốt; câu hỏi về công thức thì không.
@@ -378,18 +458,18 @@ thay vào đó. Hạ `num_ctx` không làm prompt ngắn đi, nó chỉ khiến 
 - **Nhận diện câu nối tiếp dựa trên danh sách dấu hiệu hồi chỉ** ("thế còn", "cái đó",
   "what about"…), không phân tích cú pháp; câu diễn đạt ngoài danh sách sẽ bị bỏ sót. Ngữ cảnh
   hội thoại cũng **chỉ gồm các câu hỏi trước, không gồm câu trả lời trước** — đánh đổi có chủ
-  đích (§5.58).
+  đích (ARCHITECTURE.md §7.58).
 - **Phát hiện mâu thuẫn chỉ soi các đoạn ĐÃ ĐƯỢC TRUY XUẤT** cho câu hỏi hiện tại, không quét
   toàn bộ corpus — kiểm định nhất quán toàn corpus là bài toán khác, nằm ngoài phạm vi đồ án.
 - **Không có backend API riêng** và **không lưu lịch sử qua nhiều phiên** — đúng phạm vi đồ án
   đã chốt. (Việc truy xuất không nhìn thấy lịch sử *trong cùng một phiên* là khiếm khuyết thật
-  và đã được sửa — §5.58.)
+  và đã được sửa — ARCHITECTURE.md §7.58.)
 - Nếu đường dẫn project chứa ký tự Unicode đặc biệt, một số thao tác ghi file cấp thấp của
   FAISS có thể lỗi — giữ project trong đường dẫn thuần ASCII để an toàn.
 
 ---
 
-## Hướng phát triển
+## 14. Future Work
 
 **1. Đổi index FAISS khi corpus lớn hơn — ngưỡng đã đo, không ước.** `IndexFlatIP` là tìm kiếm
 vét cạn nên độ trễ tăng tuyến tính theo số chunk.
@@ -407,8 +487,6 @@ vét cạn nên độ trễ tăng tuyến tính theo số chunk.
 - Đổi index thì **bắt buộc** chạy lại `run_evaluation.py`: đoạn bị bỏ sót hoàn toàn có thể là
   đoạn chứa câu trả lời.
 
-Chạy `python evaluation/do_quy_mo_index.py` để đo lại trên máy của bạn.
-
 **2. Giảm độ trễ thật.** Nút thắt đã chuyển hẳn sang bước LLM sinh chữ (~98% mỗi lượt hỏi).
 Đường khả dĩ còn lại là dùng model **không sinh suy luận** cho câu hỏi truy xuất thường — đã
 kiểm chứng rằng `think=False` *không* làm được việc đó (nó chỉ đổ chuỗi lập luận thẳng vào câu
@@ -417,15 +495,25 @@ trả lời), nên phải đổi hẳn model và đo lại Faithfulness trước
 **3. Adaptive TOP-K.** Bị hoãn có chủ đích chứ không phải bỏ quên: `TOP_K=4` là giá trị mà toàn
 bộ Recall@K, MRR và các ngưỡng lọc đã hiệu chỉnh trên đó, nên hạ nó cho "câu hỏi đơn giản" mà
 không đo lại chính là đổi độ chính xác lấy tốc độ. Cần một phép đo Recall@K tách theo nhóm độ
-phức tạp câu hỏi trước đã (§5.67).
+phức tạp câu hỏi trước đã (ARCHITECTURE.md §7.67).
 
-**4. Giám khảo mạnh hơn cho evaluation.** Với `qwen3:4b`, 1/8 lần chấm cho kết quả ngược hẳn
-(§5.43) — trung vị 3 lần là vá chứ không phải sửa gốc. Đặt `JUDGE_MODEL` sang model lớn hơn rồi
-chạy `kiem_dinh_judge.py` để xem có đáng đổi không.
+**4. Giám khảo mạnh hơn cho evaluation.** Với `qwen3:4b`, 1/8 lần chấm cho kết quả ngược hẳn —
+trung vị 3 lần là vá chứ không phải sửa gốc. Đặt `JUDGE_MODEL` sang model lớn hơn rồi chạy
+`kiem_dinh_judge.py` để xem có đáng đổi không.
 
-**5. Nhận diện ô KHOÁ–GIÁ TRỊ trong biểu mẫu.** §5.41 đã cứu được phần lớn vấn đề bảng lớn,
-nhưng biểu mẫu hành chính vẫn là ca khó: nhãn và giá trị nằm chung một hàng với cả tiêu đề dài,
-nên vector của chunk đó bị tiêu đề lấn át.
+**5. Nhận diện ô KHOÁ–GIÁ TRỊ trong biểu mẫu.** Phần lớn vấn đề bảng lớn đã xử lý được, nhưng
+biểu mẫu hành chính vẫn là ca khó: nhãn và giá trị nằm chung một hàng với cả tiêu đề dài, nên
+vector của chunk đó bị tiêu đề lấn át.
 
 **Ngoài phạm vi (cố tình không triển khai):** conversation memory qua nhiều phiên (session ID,
 lưu lịch sử xuống đĩa), backend API riêng (FastAPI/Flask), so sánh lại FAISS với vector DB khác.
+
+---
+
+## 15. Author
+
+**Phạm Lê Triệu Vĩ** — đồ án tốt nghiệp.
+
+Mọi quyết định thiết kế trong dự án này đều được ghi lại kèm số liệu đã đo ở
+[ARCHITECTURE.md](ARCHITECTURE.md) §7 và [KET_QUA_DO_DAC.md](KET_QUA_DO_DAC.md); phần nào chưa
+đo được thì ghi rõ là chưa đo được, không suy đoán thay.

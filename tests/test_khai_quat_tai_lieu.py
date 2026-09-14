@@ -164,7 +164,7 @@ def test_khong_chunk_nao_vuot_gioi_han_model_du_bang_hinh_dang_nao():
 
 def test_bang_vua_gioi_han_van_duoc_giu_nguyen_khoi():
     """Không được cắt bảng nhỏ chỉ vì có cơ chế cắt: bảng vừa giới hạn phải đi nguyên khối,
-    đúng như quyết định ở §5.32."""
+    đúng như quyết định ở §7.32."""
     khoi = _khoi(["| A | B |", "| --- | --- |", "| 1 | 2 |", "| 3 | 4 |"])
     cac_chunk = chia_chunk(
         [{"nguon": "a.pptx", "trang": 1, "noidung": khoi}], dem_token_fn=_dem_tu

@@ -140,7 +140,7 @@ def main() -> None:
     else:
         print(
             "✘ CẢNH BÁO: ca ngữ cảnh dính chữ vẫn bị chấm sai MÀ KHÔNG có cờ nào bật. "
-            "Đây đúng là kiểu lỗi âm thầm đã gặp ở §5.38 - đừng dùng Faithfulness làm căn "
+            "Đây đúng là kiểu lỗi âm thầm đã gặp ở §7.38 - đừng dùng Faithfulness làm căn "
             "cứ kết luận cho tới khi sửa được (hạ NGUONG_BAM_NGU_CANH_DE_NGHI_NGO, hoặc "
             "dùng judge model lớn hơn qua biến môi trường JUDGE_MODEL)."
         )

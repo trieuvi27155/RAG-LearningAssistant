@@ -120,7 +120,7 @@ def test_tat_ghep_ngu_canh_thi_ve_dung_hanh_vi_single_turn(monkeypatch):
 
 
 def test_duong_llm_mac_dinh_TAT(monkeypatch):
-    """Mặc định tắt là một KẾT QUẢ ÂM TÍNH ĐO ĐƯỢC (§5.58), không phải chưa làm xong."""
+    """Mặc định tắt là một KẾT QUẢ ÂM TÍNH ĐO ĐƯỢC (§7.58), không phải chưa làm xong."""
     assert config.BAT_VIET_LAI_CAU_HOI is False
 
 

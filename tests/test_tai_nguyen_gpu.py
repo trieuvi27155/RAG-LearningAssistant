@@ -236,7 +236,7 @@ def test_ep_thiet_bi_bang_cau_hinh_thi_khong_bi_tu_dong_chuyen(gia_lap_gpu, monk
 
 
 def test_lan_build_sau_dua_embedding_tro_lai_gpu(gia_lap_gpu, monkeypatch):
-    """Không đưa lại thì mọi lần build sau đều chạy CPU và mất khoản 13,3× ở chỗ nó đáng giá
+    """Không đưa lại thì mọi lần build sau đều chạy CPU và mất khoản 12,8× ở chỗ nó đáng giá
     nhất - đây đúng là loại hồi quy không gây lỗi, chỉ âm thầm chậm đi."""
     monkeypatch.setattr(config, "BAT_QUAN_LY_VRAM", True)
     monkeypatch.setattr(config, "THIET_BI_EMBEDDING", "auto")

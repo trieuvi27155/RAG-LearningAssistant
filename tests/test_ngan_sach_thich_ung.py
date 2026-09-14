@@ -40,7 +40,7 @@ def test_nhan_dien_do_phuc_tap(cau_hoi, phuc_tap):
 
 
 def test_cau_hoi_kiem_chung_luon_duoc_cap_ngan_sach_day_du():
-    """Câu kiểm chứng bật cả chế độ suy luận và buộc trích nguyên văn căn cứ (§5.29) -
+    """Câu kiểm chứng bật cả chế độ suy luận và buộc trích nguyên văn căn cứ (§7.29) -
     cắt ngân sách của nó là cắt đúng loại câu hỏi tốn kém nhất về mặt lập luận."""
     assert la_cau_hoi_phuc_tap("Đúng hay sai: KNN là thuật toán học không giám sát?")
 

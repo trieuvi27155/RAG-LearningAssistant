@@ -186,7 +186,7 @@ def _do_anh_huong_truy_xuat(cau_hoi_goc: str) -> None:
           f"{tong_co}/{toi_da} (có ngữ cảnh)")
     if so_sat_nguong:
         print(f"⚠ {so_sat_nguong}/{len(CAU_NOI_TIEP_TRUNG_TINH)} câu nối tiếp KHÔNG có ngữ "
-              "cảnh rơi xuống dưới 0.01 điểm rerank — sát vùng bị TỪ CHỐI OAN (§5.29). Đây "
+              "cảnh rơi xuống dưới 0.01 điểm rerank — sát vùng bị TỪ CHỐI OAN (§7.29). Đây "
               "là hậu quả nghiêm trọng hơn 'lấy nhầm đoạn': người dùng mất hẳn câu trả lời.")
 
 

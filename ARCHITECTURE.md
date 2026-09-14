@@ -1,30 +1,63 @@
-# Kiến trúc hệ thống — RAG hỏi đáp tài liệu học tập
+# System Architecture — RAG hỏi đáp tài liệu học tập
 
-Tài liệu này tổng hợp bức tranh toàn cảnh của hệ thống. Lý do chi tiết của từng quyết định
-nằm ở mục §5 dưới đây, kèm số liệu đã đo. Code chỉ giữ docstring ngắn mô tả công dụng của
-từng hàm — phần lập luận không lặp lại ở đó.
+Tài liệu này mô tả kiến trúc hệ thống: các luồng dữ liệu, vai trò từng module, và **lý do**
+đằng sau mỗi quyết định thiết kế kèm số liệu đã đo. Code chỉ giữ docstring ngắn mô tả công
+dụng của từng hàm — phần lập luận không lặp lại ở đó.
 
-> **Nguồn số liệu chuẩn là [`KET_QUA_DO_DAC.md`](KET_QUA_DO_DAC.md)** — mọi con số ở đó đo trên
-> cùng một index, kèm môi trường đo và cách tái lập. Các bảng trong §5 dưới đây gắn với **thời
-> điểm** ra quyết định (nhiều bảng đo trên corpus nhỏ hơn, hoặc trước khi có GPU), nên chúng
-> giải thích *vì sao chọn như vậy* chứ không mô tả hiệu năng hiện tại. Khi hai bên lệch nhau,
-> `KET_QUA_DO_DAC.md` là bên đúng. Bản tóm tắt ngắn cho người đọc lần đầu: [README.md](README.md).
+> **Ba tài liệu, ba vai trò khác nhau:**
+> - [README.md](README.md) — bản tóm tắt cho người đọc lần đầu: cài đặt, chạy, dùng.
+> - **Tài liệu này** — *vì sao* hệ thống được xây như vậy. Các bảng số trong §7 gắn với **thời
+>   điểm** ra quyết định (nhiều bảng đo trên corpus nhỏ hơn hoặc trước khi có GPU), nên chúng
+>   giải thích lựa chọn chứ không mô tả hiệu năng hiện tại.
+> - [KET_QUA_DO_DAC.md](KET_QUA_DO_DAC.md) — **nguồn số liệu chuẩn**: mọi con số đo trên cùng
+>   một index, kèm môi trường đo và cách tái lập. Khi tài liệu này và nó lệch nhau, nó là bên
+>   đúng.
 
 ## Mục lục
 
-1. [Tổng quan kiến trúc](#1-tổng-quan-kiến-trúc)
-2. [Luồng dữ liệu](#2-luồng-dữ-liệu)
-3. [Vai trò và Input/Output từng module](#3-vai-trò-và-inputoutput-từng-module)
-4. [Thư viện sử dụng và lý do](#4-thư-viện-sử-dụng-và-lý-do)
-5. [Quyết định thiết kế quan trọng](#5-quyết-định-thiết-kế-quan-trọng)
-6. [Triển khai và chạy hệ thống](#6-triển-khai-và-chạy-hệ-thống)
+1. [Architecture Overview](#1-architecture-overview)
+2. [High-Level Architecture](#2-high-level-architecture)
+3. [Data Flow](#3-data-flow)
+4. [Core Modules](#4-core-modules)
+5. [Module Inputs and Outputs](#5-module-inputs-and-outputs)
+6. [Technology Stack and Dependencies](#6-technology-stack-and-dependencies)
+7. [Design Decisions](#7-design-decisions)
+8. [Performance Considerations](#8-performance-considerations)
+9. [Limitations and Trade-offs](#9-limitations-and-trade-offs)
+10. [Future Architecture Improvements](#10-future-architecture-improvements)
 
 ---
 
-## 1. Tổng quan kiến trúc
+## 1. Architecture Overview
 
-Mô hình **RAG (Retrieval-Augmented Generation)** cổ điển, chạy hoàn toàn local, không có
-backend API riêng:
+Hệ thống theo mô hình **RAG (Retrieval-Augmented Generation)** cổ điển: thay vì hỏi thẳng một
+LLM và nhận về câu trả lời không kiểm chứng được, hệ thống **truy xuất trước** các đoạn liên
+quan từ chính tài liệu của người dùng, rồi mới đưa chúng vào prompt để LLM viết câu trả lời
+dựa trên đó — nhờ vậy mỗi câu trả lời đều gắn được với một vị trí cụ thể trong tài liệu gốc.
+
+**Ba đặc điểm định hình toàn bộ kiến trúc:**
+
+1. **Chạy hoàn toàn local.** Embedding, rerank, LLM và model vision đều chạy trên máy người
+   dùng (qua `sentence-transformers` và Ollama). Không có lệnh gọi mạng nào ra ngoài sau lần
+   tải model đầu tiên.
+2. **Không có backend API riêng.** `app.py` (Streamlit) đóng vai *composition root*: nó khởi
+   tạo `EmbeddingService` và `VectorStore` một lần rồi gọi thẳng các hàm/class ở `rag/*.py`.
+   Với corpus quy mô đồ án và 1 người dùng tại 1 thời điểm, một tầng HTTP ở giữa chỉ thêm
+   điểm hỏng mà không giải quyết vấn đề nào (§7.9).
+3. **Hai giai đoạn tách biệt về thời điểm chạy.** Ingestion (đọc và lập chỉ mục tài liệu) và
+   Query (trả lời câu hỏi) không bao giờ chạy đồng thời — người dùng bấm "Đọc tài liệu" rồi
+   mới hỏi. Sự thật này về *luồng sử dụng* là thứ cho phép hai giai đoạn **chia nhau VRAM**
+   thay vì phải vừa cả bốn model cùng lúc (§7.68).
+
+**Nguyên tắc cốt lõi:** hai luồng dùng **chung 1 instance** `EmbeddingService` và
+`VectorStore`. Dùng chung model embedding là **bắt buộc** — nếu không, vector câu hỏi và vector
+tài liệu nằm ở hai không gian khác nhau và cosine similarity trở nên vô nghĩa. Hệ thống ghi
+"vân tay" cấu hình vào `index_info.json` và tự đối chiếu mỗi lần nạp index để chặn đúng kiểu
+lỗi này (§7.20).
+
+---
+
+## 2. High-Level Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -50,25 +83,31 @@ backend API riêng:
        rag/vector_store.py  ◄──── dùng chung ──► rag/citation.py
 ```
 
-`bo_nho_dem` (cache theo băm nội dung) và `do_thoi_gian` (profiling) chỉ phục vụ luồng
-Ingestion và **không** nằm trên đường đi của một câu hỏi — độ trễ lúc hỏi không đổi vì chúng.
+**Hai module cắt ngang (cross-cutting):**
 
-`rag/tai_nguyen_gpu.py` thì cắt ngang CẢ HAI luồng: nó quyết định embedding và reranker
-chạy trên GPU hay CPU, batch size bao nhiêu, mấy worker vision — tất cả suy từ phần cứng
-của máy đang chạy — và nhả model vision khỏi VRAM ở ranh giới giữa hai giai đoạn (§5.68).
+| Module | Phục vụ luồng nào | Vai trò |
+|---|---|---|
+| `rag/bo_nho_dem.py` · `rag/do_thoi_gian.py` | **chỉ** Ingestion | Cache theo băm nội dung và profiling từng bước. **Không** nằm trên đường đi của một câu hỏi — độ trễ lúc hỏi không đổi vì chúng. |
+| `rag/tai_nguyen_gpu.py` | **cả hai** | Quyết định embedding và reranker chạy trên GPU hay CPU, batch size bao nhiêu, mấy worker vision — tất cả suy từ phần cứng của máy đang chạy — và nhả model vision khỏi VRAM ở ranh giới giữa hai giai đoạn (§7.68). |
 
-**Nguyên tắc cốt lõi:** hai luồng độc lập về thời điểm chạy nhưng dùng **chung 1 instance**
-`EmbeddingService` và `VectorStore`. Bắt buộc dùng chung model embedding — nếu không, vector
-câu hỏi và vector tài liệu nằm ở hai không gian khác nhau và cosine similarity vô nghĩa.
+**Lưu trữ trên đĩa:**
 
-Không có backend/API riêng (FastAPI/Flask) — đúng phạm vi đồ án đã chốt: corpus nhỏ, 1 người
-dùng tại 1 thời điểm, không cần horizontal scaling.
+```
+data/faiss_index/  index.faiss · metadata.pkl · index_info.json ("vân tay" cấu hình, §7.20)
+data/cache/        tai_lieu/ · ocr/ · vision/ · embedding/  (khoá theo BĂM NỘI DUNG, §7.66)
+data/images/       ảnh trích từ tài liệu, đường dẫn nằm trong metadata của chunk ảnh
+```
 
 ---
 
-## 2. Luồng dữ liệu
+## 3. Data Flow
 
-### 2.1 Ingestion (bấm "Đọc tài liệu")
+Ba luồng con, đi theo đúng thứ tự người dùng gặp chúng: nạp tài liệu (§3.1) → tìm đoạn liên
+quan (§3.2) → sinh câu trả lời và trích dẫn (§3.3). Ranh giới giữa §3.2 và §3.3 là chỗ có ý
+nghĩa kiến trúc: **nếu không đoạn nào vượt ngưỡng thì luồng dừng ngay ở §3.2**, trả về
+`CAU_TU_CHOI` mà không tốn một lượt gọi LLM nào.
+
+### 3.1 Document Ingestion Flow
 
 ```
 data/raw/*.pdf|*.pptx|*.docx
@@ -76,7 +115,7 @@ data/raw/*.pdf|*.pptx|*.docx
    │     → chỉ những file MỚI / ĐÃ ĐỔI mới đi tiếp; file đã biến mất bị xoa_theo_nguon()
    │  doc_nhieu_file()             → List[{nguon, trang, noidung}]   (1 phần tử / trang·slide)
    │     ├─ trúng cache tài liệu (băm nội dung + vân tay cấu hình đọc) → trả kết quả cũ
-   │     └─ trượt cache → doc_pdf/pptx/docx MỘT LƯỢT (§5.66):
+   │     └─ trượt cache → doc_pdf/pptx/docx MỘT LƯỢT (§7.66):
    │            pha 1  đọc text + bảng + cột + tiêu đề + liệt kê ứng viên ảnh (chưa render)
    │            pha 2  OCR các trang đã đánh dấu — tra cache trước, phần còn lại gọi
    │                   model SONG SONG (SO_WORKER_VISION)
@@ -89,88 +128,265 @@ data/raw/*.pdf|*.pptx|*.docx
    │                                 (chỉ encode chunk chưa có trong cache embedding)
    │  VectorStore.them() → .luu()   (ghi kèm sổ băm tài liệu)
    │  tai_nguyen_gpu.ket_thuc_ingestion(): nhả model vision khỏi VRAM, dọn bộ đệm CUDA
-   │     → chuyển sang giai đoạn QUERY (§5.68)
+   │     → chuyển sang giai đoạn QUERY (§7.68)
    ▼
-data/faiss_index/  index.faiss · metadata.pkl · index_info.json ("vân tay" cấu hình, §5.20)
-data/cache/        tai_lieu/ · ocr/ · vision/ · embedding/  (khoá theo BĂM NỘI DUNG, §5.66)
+data/faiss_index/  ·  data/cache/  ·  data/images/
 ```
 
 **Index TĂNG DẦN theo mặc định** (`BAT_INDEX_TANG_DAN`): chỉ tài liệu mới hoặc đã đổi nội dung
 mới được xử lý lại; phần còn lại giữ nguyên vector đang có. Đây là chỗ đã thay cho quyết định
-cũ ở §5.10 ("build lại toàn bộ khi THÊM tài liệu") — quyết định đó đúng khi chưa có cách nào
+cũ ở §7.10 ("build lại toàn bộ khi THÊM tài liệu") — quyết định đó đúng khi chưa có cách nào
 biết tài liệu nào đã đổi, và băm nội dung chính là cách đó. XOÁ tài liệu vẫn có hiệu lực tức
 thời qua `xoa_theo_nguon()` như cũ. Khi vân tay index không khớp cấu hình (đổi model embedding,
 chunk size…) thì hệ thống tự lùi về build **toàn bộ**, vì lúc đó vector cũ và mới không nằm
 cùng một không gian ngữ nghĩa.
 
 Sau mỗi lần build, `rag/do_thoi_gian.py` in bảng tổng kết thời gian từng bước
-(`BAT_PROFILING_INGESTION`).
+(`BAT_PROFILING_INGESTION`) — xem §8.
 
-### 2.2 Query (mỗi câu hỏi)
+### 3.2 Query / Retrieval Flow
 
 ```
 Câu hỏi
    │  chuan_bi_truy_van(): câu NỐI TIẾP ("Thế còn cái thứ hai?") được ghép thêm các câu
-   │  hỏi trước thành truy vấn CHÍNH — tất định, 0 lượt gọi LLM (§5.58)
+   │  hỏi trước thành truy vấn CHÍNH — tất định, 0 lượt gọi LLM (§7.58)
    ├── encode_cau_hoi() → tim_kiem_vi_tri()      nhánh VECTOR, cho MỖI truy vấn
-   └── tim_kiem_tu_khoa()                        nhánh BM25   (mặc định TẮT, §5.30)
+   └── tim_kiem_tu_khoa()                        nhánh BM25   (mặc định TẮT, §7.30)
              │  hợp nhất RRF CÓ TRỌNG SỐ: Σ trọng_số/(RRF_K + thứ_hạng)
              │  lọc theo nguon_cho_phep (tick chọn nguồn ở UI)
+             │  lọc theo ngưỡng tuyệt đối + ngưỡng TƯƠNG ĐỐI so với điểm cao nhất (§7.61)
              ▼
-   rerank bằng cross-encoder (§5.24) — đổi THỨ TỰ, giữ nguyên thang điểm cosine
-             │  số ứng viên được chấm tuỳ ĐỘ PHỨC TẠP câu hỏi: 30 (phức tạp) / 12 (§5.67)
-             │  điểm rerank < NGUONG_DIEM_RERANK_TOI_THIEU → TỪ CHỐI, không gọi LLM (§5.29)
+   rerank bằng cross-encoder (§7.24) — đổi THỨ TỰ, giữ nguyên thang điểm cosine
+             │  số ứng viên được chấm tuỳ ĐỘ PHỨC TẠP câu hỏi: 30 (phức tạp) / 12 (§7.67)
+             │  điểm rerank < NGUONG_DIEM_RERANK_TOI_THIEU → TỪ CHỐI, không gọi LLM (§7.29)
              ▼
-   _dung_doan_trich(): dựng đoạn QUANH chunk khớp, mở rộng sang chunk liền kề cùng trang;
-                       trần SO_DOAN_TOI_DA_MOI_TRANG và trần riêng cho đoạn là ảnh (§5.35)
+   _dung_doan_trich(): dựng đoạn QUANH chunk khớp, mở rộng sang chunk liền kề cùng trang
+                       và (tuỳ chọn) sang trang liền kề; trần SO_DOAN_TOI_DA_MOI_TRANG và
+                       trần riêng cho đoạn là ảnh (§7.11, §7.35)
              ▼
-   _phat_hien_ngon_ngu() → vi/en  ·  la_cau_hoi_kiem_chung() → prompt thường / KIỂM CHỨNG
-             ▼
-   nen_ngu_canh(): prompt vượt trần cửa sổ → bỏ các đoạn xếp hạng THẤP NHẤT (không bao giờ
-                   hạ num_ctx — §5.60, §5.67); num_predict thì CỐ ĐỊNH (KET_QUA_DO_DAC.md §8.9)
-             ▼
-   Ollama chat(stream=True) → câu trả lời chạy dần (§5.42)
-             ▼
-   loc_theo_tham_chieu(): chỉ giữ nguồn mà câu trả lời THẬT SỰ dẫn (§5.14, §5.54)
-             ▼
-   tim_mau_thuan(): đối chiếu CHÉO các nguồn, cảnh báo khi hai tài liệu nói ngược nhau.
-                    Chạy SAU khi câu trả lời đã hiện xong nên không làm chậm chữ đầu tiên;
-                    tầng lọc tất định khiến đại đa số lượt hỏi tốn 0 lượt LLM (§5.59)
+   List[{nguon, trang, noidung, doan_khop, diem_similarity}]  →  §3.3
 ```
 
-Index rỗng hoặc không đoạn nào đạt ngưỡng → trả thẳng `CAU_TU_CHOI`, **không gọi LLM**.
+Index rỗng hoặc không đoạn nào đạt ngưỡng → trả thẳng `CAU_TU_CHOI`, **không gọi LLM**. Đây
+không phải đường lỗi mà là một trong hai kết quả hợp lệ của luồng này.
+
+### 3.3 Answer Generation Flow
+
+```
+Các đoạn trích đã chọn (§3.2)
+   │  _phat_hien_ngon_ngu() → vi/en
+   │  la_cau_hoi_kiem_chung() → chọn system prompt THƯỜNG hay KIỂM CHỨNG (§7.22)
+   ▼
+   nen_ngu_canh(): prompt vượt trần cửa sổ → bỏ các đoạn xếp hạng THẤP NHẤT, bỏ từ cuối lên
+                   để số thứ tự [1], [2]… của đoạn còn lại không đổi. KHÔNG BAO GIỜ hạ
+                   num_ctx (§7.60, §7.67)
+   ▼
+   _ghep_prompt(): system prompt + các đoạn được đánh số [1], [2]… + câu hỏi
+   ▼
+   Ollama chat(stream=True) → câu trả lời chạy dần ra màn hình (§7.42)
+   ▼
+   loc_theo_tham_chieu(): đọc lại chính các số [n] mà model đã gắn → chỉ giữ nguồn mà câu
+                          trả lời THẬT SỰ dẫn; không gắn số nào thì nói rõ ra (§7.14, §7.54)
+   ▼
+   do_bam_nguon(): tỉ lệ nội dung trùng nguyên văn với đoạn đã dẫn — tất định, 0 lượt LLM,
+                   và chỉ hiện khi CAO (§7.55)
+   ▼
+   tim_mau_thuan(): đối chiếu CHÉO các nguồn, cảnh báo khi hai tài liệu nói ngược nhau.
+                    Chạy SAU khi câu trả lời đã hiện xong nên không làm chậm chữ đầu tiên;
+                    tầng lọc tất định khiến đại đa số lượt hỏi tốn 0 lượt LLM (§7.59)
+```
+
+**Chỉ có MỘT đường gọi LLM.** Bản không streaming dùng cho evaluation gom lại từ chính
+generator mà giao diện dùng, để số đo trong báo cáo luôn nói về đúng thứ người dùng thấy
+(§7.42).
 
 ---
 
-## 3. Vai trò và Input/Output từng module
+## 4. Core Modules
+
+Mục này mô tả **vai trò và lựa chọn thiết kế** của từng khối. Chữ ký hàm và kiểu dữ liệu
+input/output đầy đủ nằm ở §5.
+
+### 4.1 Document Loader
+
+`rag/document_loader.py` (cùng `image_extractor.py`, `vision_caption.py`, `bo_nho_dem.py`,
+`do_thoi_gian.py`) — biến file thô thành `List[{nguon, trang, noidung}]`, **một phần tử cho
+mỗi trang/slide**, giữ metadata ngay từ bước đọc chứ không cố suy ngược về sau.
+
+Đây là module phức tạp nhất của hệ thống, vì tài liệu thật hỏng theo rất nhiều kiểu khác nhau
+và **hầu hết kiểu hỏng đều không gây lỗi**:
+
+| Vấn đề gặp trên tài liệu thật | Cách xử lý | §  |
+|---|---|---|
+| PDF scan → index rỗng, không báo lỗi | Trang nào **đo được** là không đọc được thì tự OCR | §7.37, §7.49 |
+| PDF 2 cột bị nối câu cột trái sang cột phải | Dò rãnh giữa cột, chỉ công nhận khi có chữ ở **cả hai bên** | §7.51 |
+| Sách LaTeX bị nuốt khoảng trắng (`whichareknownas…`) | Đọc lại có điều kiện, `x_tolerance` dò theo từng trang | §7.40, §7.45 |
+| Công thức toán ra `(cid:NN)` | Lọc bỏ rác; **không** khôi phục được nội dung | §7.36 |
+| Bảng lớn bị mất dòng tiêu đề khi cắt | Cắt theo **HÀNG**, lặp lại dòng tiêu đề ở mỗi mảnh | §7.41 |
+| Text box trong DOCX biến mất | Đọc thêm tầng text box | §7.52 |
+| Một file hỏng làm sập cả lần build | Cô lập lỗi theo từng file | §7.53 |
+| Icon/logo/watermark thành vector rác | Ba chốt hình dạng + chốt đếm lần lặp, chạy **trước** khi render | §7.66 |
+
+Hai tính chất kiến trúc quan trọng: PDF được **đọc một lượt chia 4 pha** thay vì quét đi quét
+lại (bản trước duyệt mỗi PDF hai lần và đọc lại mỗi trang dính chữ tới 5 lần), và **mọi kết
+quả đắt tiền đều được cache theo băm nội dung** — đọc tài liệu, OCR từng trang, chú thích ảnh,
+vector embedding (§7.66).
+
+### 4.2 Chunking
+
+`rag/chunking.py` — Recursive Character Splitting với ranh giới ưu tiên theo cấu trúc
+(`\n## `, `\n# `, `\n\n`, `\n`, `. `, ` `), mặc định **160 token, overlap 32**.
+
+Quyết định quan trọng nhất ở đây không phải con số 160 mà là **đo bằng gì**: độ dài chunk được
+đếm bằng **đúng tokenizer của model embedding đang dùng**, không phải `tiktoken`. Trên tiếng
+Việt, `tiktoken` đếm gấp ~1,9 lần, khiến chunk nhỏ hơn dự định rất nhiều và nội dung bị băm
+vụn (§7.2, §7.3). `tiktoken` chỉ còn là đường dự phòng khi không lấy được tokenizer thật.
+
+Ba cơ chế bảo vệ đi kèm: chunk **tự co lại** nếu vượt giới hạn model đang dùng (§7.18), bảng
+được phép dài hơn văn xuôi tới sát giới hạn model (§7.32), và chunk quá ngắn bị loại thay vì
+đi vào index làm nhiễu.
+
+### 4.3 Embedding
+
+`rag/embedding.py` — wrapper quanh `sentence-transformers`, mặc định
+`intfloat/multilingual-e5-base` (768 chiều).
+
+Model được chọn vì nó huấn luyện cho **retrieval** (câu hỏi ngắn ↔ đoạn tài liệu dài), không
+phải cho *paraphrase* như lựa chọn ban đầu — kèm theo đó là giới hạn 512 token thay vì 128
+(§7.19). Hệ quả kiến trúc: câu hỏi và tài liệu được mã hoá bằng **hai hàm riêng**
+(`encode_cau_hoi` / `encode_tai_lieu`) vì họ E5 cần tiền tố `query: ` và `passage: ` khác nhau
+— trộn hai hàm này là một lỗi âm thầm làm tụt chất lượng mà không có triệu chứng nào.
+
+Vector được chuẩn hoá L2 ngay lúc encode, để inner product trong FAISS **tương đương cosine
+similarity** (§7.1). Thiết bị chạy (GPU/CPU) và batch size do `tai_nguyen_gpu.py` quyết định
+theo phần cứng thật, không phải hằng số (§7.68).
+
+### 4.4 Vector Store
+
+`rag/vector_store.py` — FAISS `IndexFlatIP` cộng một danh sách metadata song song, cộng hai
+chỉ mục phụ **dựng lười và tự huỷ khi dữ liệu đổi**: chỉ mục theo (nguồn, trang) phục vụ mở
+rộng ngữ cảnh, và chỉ mục BM25 phục vụ nhánh tìm kiếm từ khoá.
+
+`IndexFlatIP` là tìm kiếm vét cạn — chính xác tuyệt đối, không có tham số xấp xỉ nào phải
+chỉnh, và đủ nhanh ở quy mô này (FAISS chiếm dưới 1 ms mỗi câu). Ngưỡng phải đổi sang index
+xấp xỉ đã được **đo chứ không ước**: xem §10.
+
+Cùng index, hệ thống ghi `index_info.json` chứa **vân tay cấu hình** (tên model embedding, số
+chiều, chunk size…) và sổ băm từng tài liệu. Vân tay là chốt chặn cho một lỗi không có triệu
+chứng: hai model embedding khác nhau có thể cùng số chiều, nên index cũ vẫn *nạp được* và vẫn
+*trả về kết quả* — chỉ là kết quả sai (§7.20). Sổ băm là thứ khiến index tăng dần hoạt động
+được (§3.1).
+
+### 4.5 Retrieval
+
+`rag/rag_pipeline.py::truy_xuat()` cùng `lexical_search.py` và `tiep_noi_hoi_thoai.py`.
+
+Ba tầng, theo thứ tự rộng → hẹp:
+
+1. **Chuẩn bị truy vấn.** Câu hỏi nối tiếp được ghép ngữ cảnh hội thoại thành truy vấn chính;
+   câu gốc vẫn giữ làm một nhánh riêng, nên ghép sai chỉ làm nhiễu thứ hạng chứ không xoá được
+   kết quả đúng (§7.58).
+2. **Truy hồi lai.** Nhánh dense (FAISS) chạy cho *mỗi* truy vấn, nhánh BM25 chạy song song
+   (mặc định chỉ ở vai trò "cứu hộ", bơm thêm ứng viên chứ không tham gia xếp hạng — §7.30).
+   Hợp nhất bằng **RRF có trọng số**, vì hai nhánh cho hai thang điểm không so được với nhau
+   (§7.21).
+3. **Lọc.** Theo nguồn người dùng tick chọn, rồi theo ngưỡng điểm — một sàn tuyệt đối chỉ để
+   chặn rác, cộng một **ngưỡng tương đối** so với điểm cao nhất của chính lượt truy vấn đó.
+   Ngưỡng tuyệt đối là ngưỡng chỉ đúng trên corpus đã dùng để đo nó (§7.61).
+
+Hệ thống lấy về nhiều hơn `TOP_K` rất nhiều (`HE_SO_OVER_FETCH`, tối thiểu 60 ứng viên) vì
+tầng rerank phía sau mới là tầng quyết định thứ tự cuối cùng.
+
+### 4.6 Reranking
+
+`rag/reranker.py` — cross-encoder `BAAI/bge-reranker-v2-m3` chấm lại 30 ứng viên đầu (12 cho
+câu hỏi được xếp là đơn giản, §7.67).
+
+**Vì sao hai tầng chứ không thay thế tầng 1:** cross-encoder đọc *cả cặp* (câu hỏi, đoạn) nên
+chính xác hơn hẳn bi-encoder, nhưng vì thế **không tính trước được** — quét cả corpus bằng nó
+là bất khả thi. Tầng 1 quét rộng lấy vài chục ứng viên, tầng 2 đọc kỹ vài chục ứng viên đó.
+Đo được: MRR 0,417 → 0,642 (§7.24).
+
+Hai tính chất phải giữ: **điểm cosine không bị ghi đè** — rerank chỉ đổi thứ tự chọn, vì trộn
+hai thang đo vào cùng một trường là kiểu lỗi rất khó lần ra; và **ngưỡng từ chối đặt trên điểm
+rerank chứ không phải cosine** — đã đo, không tồn tại ngưỡng cosine nào tách được câu lạc đề
+khỏi câu đúng chủ đề, còn điểm rerank thì tách được ~37.000 lần (§7.29, §7.57).
+
+### 4.7 Generation
+
+`rag/rag_pipeline.py::sinh_cau_tra_loi_theo_luong()` — **đường gọi LLM duy nhất** của hệ thống.
+
+Bốn việc trước khi gọi model: phát hiện ngôn ngữ để trả lời đúng thứ tiếng (§7.31), phân loại
+câu hỏi để chọn system prompt thường hay **KIỂM CHỨNG** (§7.22, §7.56), dựng đoạn trích và
+đánh số `[1]`, `[2]`… , và **nén ngữ cảnh** nếu prompt vượt trần cửa sổ.
+
+Phần nén ngữ cảnh là chỗ có ràng buộc tuyệt đối: **không bao giờ hạ `num_ctx`**. Hạ `num_ctx`
+không làm prompt ngắn lại, nó chỉ chuyển quyền quyết định cắt chỗ nào sang Ollama — mà Ollama
+luôn cắt từ **đầu**, tức xoá đúng đoạn trích liên quan nhất. Thay vào đó hệ thống tự bỏ các
+đoạn xếp hạng thấp nhất, bỏ **từ cuối lên** để số thứ tự của các đoạn còn lại không đổi
+(§7.60, §7.67).
+
+Câu trả lời được trả về theo luồng (§7.42). Streaming không làm model nhanh hơn, nhưng đổi hẳn
+cảm nhận: dấu hiệu đầu tiên sau ~2 giây thay vì spinner câm cả phút.
+
+### 4.8 Citation
+
+`rag/citation.py` cùng `doi_chieu_nguon.py` — tầng biến một câu trả lời thành một câu trả lời
+**kiểm chứng được**.
+
+Cơ chế: prompt bắt LLM gắn số đoạn trích `[1]`, `[2]`… cho từng ý, rồi hệ thống **đọc lại
+chính các số đó** để biết câu trả lời dùng nguồn nào và chỉ hiển thị đúng những nguồn ấy
+(§7.14). Các số này không hiện ra màn hình, vì chúng là thứ tự đoạn trích *trong prompt* — một
+thứ tự người đọc không nhìn thấy nên cũng không tra ngược được.
+
+Ba nguyên tắc trình bày, mỗi cái sửa một lỗi trích dẫn đã gặp thật:
+
+- **Không trình bày phỏng đoán như thể là nguồn.** Model không gắn số nào thì giao diện nói
+  thẳng *"câu trả lời không tự dẫn nguồn — đoạn dưới là đoạn liên quan nhất do hệ thống chọn"*
+  (§7.54).
+- **Không in lại nguyên văn đoạn đã dùng.** Đoạn in kèm chỉ là bản cắt ngắn và mất định dạng
+  gốc, dễ khiến người đọc dừng ở đó thay vì mở tài liệu thật ra kiểm tra (§7.14).
+- **Chỉ báo bám nguồn chỉ hiện khi CAO.** Tỉ lệ trùng nguyên văn thấp không chứng minh được gì
+  — diễn đạt lại bằng lời của mình cũng cho tỉ lệ thấp (§7.55).
+
+`doi_chieu_nguon.py` chạy **sau** khi câu trả lời đã hiện xong: nó đối chiếu chéo các đoạn đã
+dùng và cảnh báo khi hai tài liệu nói ngược nhau, nhưng **không tự phân xử** nguồn nào đúng —
+hệ thống không biết tài liệu nào mới hơn. Thiết kế nghiêng hẳn về phía im lặng vì báo động giả
+làm người dùng mất niềm tin vào chính tài liệu của họ, tệ hơn hẳn bỏ sót (§7.59).
+
+---
+
+## 5. Module Inputs and Outputs
+
+Bảng chữ ký và kiểu dữ liệu của từng module. Phần *vì sao* nằm ở §4 và §7.
 
 ### `config.py`
-Nguồn cấu hình duy nhất: nạp `.env` (loader tự viết), ép console UTF-8 (§5.5), cấu hình
+Nguồn cấu hình duy nhất: nạp `.env` (loader tự viết), ép console UTF-8 (§7.5), cấu hình
 logging. Output là các hằng số module-level (`CHUNK_SIZE_TOKENS`, `EMBEDDING_MODEL_NAME`,
 `TOP_K`, `OLLAMA_MODEL`, các `Path` tới `data/…`) mà mọi module khác import trực tiếp.
 
 ### `rag/document_loader.py`
 Đọc PDF/PPTX/DOCX thành text, giữ metadata nguồn ngay từ bước đọc, chuẩn hoá Unicode NFC,
-dọn watermark + loại trang mục lục (§5.17), đọc bảng sang Markdown (§5.26), đọc PDF nhiều
-cột (§5.51), đọc lại trang dính chữ (§5.40), OCR trang hỏng (§5.37, §5.49). PDF đi qua đúng
-**một lượt duyệt**, chia 4 pha (§5.66).
+dọn watermark + loại trang mục lục (§7.17), đọc bảng sang Markdown (§7.26), đọc PDF nhiều
+cột (§7.51), đọc lại trang dính chữ (§7.40), OCR trang hỏng (§7.37, §7.49). PDF đi qua đúng
+**một lượt duyệt**, chia 4 pha (§7.66).
 
 | Hàm | Input | Output |
 |---|---|---|
 | `doc_pdf` / `doc_pptx` / `doc_docx` | `Path` tới 1 file | `List[{nguon, trang, noidung}]` |
 | `doc_tai_lieu(duong_dan)` | 1 file, tự nhận đuôi | như trên — chỉ ĐỌC, chưa chú thích ảnh |
 | `doc_tai_lieu_hoan_chinh(duong_dan)` | 1 file | đọc + chú thích ảnh + bỏ ảnh rỗng — **đơn vị được cache** |
-| `doc_tai_lieu_co_cache(duong_dan)` | 1 file | như trên, nhưng trúng cache thì trả kết quả cũ (§5.66) |
+| `doc_tai_lieu_co_cache(duong_dan)` | 1 file | như trên, nhưng trúng cache thì trả kết quả cũ (§7.66) |
 | `cac_file_tai_lieu(thu_muc)` | 1 thư mục | danh sách `Path` file hỗ trợ được, thứ tự ổn định |
-| `doc_nhieu_file(cac_duong_dan)` | danh sách file | gộp; file hỏng bị bỏ qua có báo cáo (§5.53) |
+| `doc_nhieu_file(cac_duong_dan)` | danh sách file | gộp; file hỏng bị bỏ qua có báo cáo (§7.53) |
 | `doc_thu_muc(thu_muc)` | 1 thư mục | `doc_nhieu_file(cac_file_tai_lieu(thu_muc))` |
-| `HieuChinhXTolerance` | — | nhớ mức `x_tolerance` đã dùng được cho tài liệu hiện tại (§5.66) |
+| `HieuChinhXTolerance` | — | nhớ mức `x_tolerance` đã dùng được cho tài liệu hiện tại (§7.66) |
 
 `doc_nhieu_file` nhận DANH SÁCH thay vì thư mục là điều kiện để index tăng dần hoạt động:
 khi chỉ 1 trong 26 tài liệu thay đổi, `app.py` chỉ đưa đúng file đó vào.
 
 ### `rag/bo_nho_dem.py`
-Bộ nhớ đệm theo **băm nội dung** cho luồng Ingestion (§5.66). Mọi lỗi đọc/ghi cache đều bị
+Bộ nhớ đệm theo **băm nội dung** cho luồng Ingestion (§7.66). Mọi lỗi đọc/ghi cache đều bị
 nuốt kèm log: cache hỏng chỉ được phép làm hệ thống chậm lại đúng bằng lúc chưa có cache.
 
 | Hàm / lớp | Vai trò |
@@ -179,12 +395,12 @@ nuốt kèm log: cache hỏng chỉ được phép làm hệ thống chậm lạ
 | `van_tay_doc_tai_lieu()` | băm của các tuỳ chọn ĂN VÀO KẾT QUẢ ĐỌC — đổi chúng thì cache phải trượt |
 | `KhoDem` | kho khoá-giá trị trên đĩa, chia thư mục con theo 2 ký tự đầu của khoá |
 | `kho_tai_lieu` / `kho_ocr` / `kho_vision` | ba kho dùng chung cho cả tiến trình |
-| `khoa_tai_lieu` / `khoa_ocr` / `khoa_vision` | dựng khoá cho từng loại (xem bảng ở §5.66) |
+| `khoa_tai_lieu` / `khoa_ocr` / `khoa_vision` | dựng khoá cho từng loại (xem bảng ở §7.66) |
 | `KhoVectorDem` / `encode_co_cache` | cache embedding trong MỘT file `.npz`, chỉ encode chunk mới |
 | `dung_luong_cache()` / `xoa_cache()` | cho giao diện nói được con số thật khi mời xoá |
 
 ### `rag/tai_nguyen_gpu.py`
-Dò phần cứng và quản lý VRAM theo giai đoạn (§5.68). Không có GPU thì mọi hàm ở đây thành
+Dò phần cứng và quản lý VRAM theo giai đoạn (§7.68). Không có GPU thì mọi hàm ở đây thành
 không-làm-gì chứ không ném lỗi — máy chỉ có CPU phải chạy được đầy đủ.
 
 | Hàm | Vai trò |
@@ -194,7 +410,7 @@ không-làm-gì chứ không ném lỗi — máy chỉ có CPU phải chạy đ�
 | `kich_thuoc_lo_embedding()` | batch encode suy từ VRAM **còn trống**, chặn trên bởi cấu hình |
 | `so_worker_vision()` | min(trần cấu hình, số nhân CPU, VRAM còn trống) |
 | `vram()` / `tong_vram_gb()` / `vram_con_trong_gb()` | số liệu VRAM cho quyết định và log |
-| `mo_ta_phan_cung()` | một dòng nói rõ đang chạy GPU hay CPU — chống lại đúng lỗi ở §5.68 |
+| `mo_ta_phan_cung()` | một dòng nói rõ đang chạy GPU hay CPU — chống lại đúng lỗi ở §7.68 |
 | `nha_model_ollama(ten)` | bảo Ollama nhả model khỏi VRAM ngay (`keep_alive=0`) |
 | `ket_thuc_ingestion()` | ranh giới giai đoạn: nhả vision + dọn bộ đệm CUDA |
 
@@ -208,37 +424,37 @@ Recursive Character Splitting, đo bằng **tokenizer thật của model** (tikt
 
 | Hàm | Output |
 |---|---|
-| `kich_thuoc_chunk_an_toan(max_seq_length)` | `CHUNK_SIZE_TOKENS` đã tự hạ cho vừa model (§5.18) |
+| `kich_thuoc_chunk_an_toan(max_seq_length)` | `CHUNK_SIZE_TOKENS` đã tự hạ cho vừa model (§7.18) |
 | `tao_splitter(dem_token_fn, max_seq_length)` | `RecursiveCharacterTextSplitter` đã cấu hình |
-| `chia_chunk(cac_trang, …)` | `List[{chunk_id, nguon, trang, vi_tri, noidung}]`; bảng giữ nguyên khối, quá lớn thì cắt theo HÀNG kèm lặp tiêu đề (§5.41) |
+| `chia_chunk(cac_trang, …)` | `List[{chunk_id, nguon, trang, vi_tri, noidung}]`; bảng giữ nguyên khối, quá lớn thì cắt theo HÀNG kèm lặp tiêu đề (§7.41) |
 
 `vi_tri` = thứ tự chunk trong trang gốc, dùng để `rag_pipeline` mở rộng ngữ cảnh đúng thứ tự.
 
 ### `rag/embedding.py` — `EmbeddingService`
-Wrapper `sentence-transformers`, chạy trên GPU nếu máy có (§5.68). **Không có** hàm
+Wrapper `sentence-transformers`, chạy trên GPU nếu máy có (§7.68). **Không có** hàm
 `encode()` dùng chung: chỉ có
 `encode_cau_hoi()` (tiền tố `query: `) và `encode_tai_lieu()` (tiền tố `passage: `) — model
-họ E5 huấn luyện bất đối xứng, thiếu tiền tố thì chất lượng tụt âm thầm (§5.19).
+họ E5 huấn luyện bất đối xứng, thiếu tiền tố thì chất lượng tụt âm thầm (§7.19).
 Ngoài ra: `.dimension` (768), `.max_seq_length` (512), `.dem_token()`, `.lay_ham_dem_token()`.
 
 ### `rag/lexical_search.py`
 BM25 tự cài (~60 dòng). `_tach_tu()` lập chỉ mục **cả âm tiết đơn lẫn bigram** để bắt cụm
-thuật ngữ tiếng Việt mà không cần thư viện tách từ (§5.21). Mặc định TẮT (§5.30).
+thuật ngữ tiếng Việt mà không cần thư viện tách từ (§7.21). Mặc định TẮT (§7.30).
 
 ### `rag/reranker.py` — `RerankerService`
 Cross-encoder (~2.2GB) đọc cả cặp (câu hỏi, đoạn), chạy trên GPU nếu máy có — đây là model
-đáng đưa lên GPU nhất vì nó nằm trên đường đi của MỌI câu hỏi (§5.68).
+đáng đưa lên GPU nhất vì nó nằm trên đường đi của MỌI câu hỏi (§7.68).
 `.xep_hang(cau_hoi, cac_doan)`
-điểm song song với `cac_doan`, chưa sắp xếp. Điểm này còn dùng cho ngưỡng từ chối (§5.29).
+điểm song song với `cac_doan`, chưa sắp xếp. Điểm này còn dùng cho ngưỡng từ chối (§7.29).
 
 ### `rag/image_extractor.py`
 Bản ghi ảnh dùng **đúng schema `{nguon, trang, noidung}`** của văn bản, nên đi qua toàn bộ
-luồng còn lại y hệt một đoạn text — không module nào phải biết đến khái niệm "ảnh" (§5.27).
-PPTX duyệt đệ quy group shape; DOCX/PPTX quét `rels` để không mất ảnh SVG/ảnh liên kết (§5.33).
+luồng còn lại y hệt một đoạn text — không module nào phải biết đến khái niệm "ảnh" (§7.27).
+PPTX duyệt đệ quy group shape; DOCX/PPTX quét `rels` để không mất ảnh SVG/ảnh liên kết (§7.33).
 
 | Hàm | Vai trò |
 |---|---|
-| `ung_vien_anh_trang(trang)` | liệt kê `(bbox, có_phủ_cả_trang)` của ảnh đáng giữ — **chưa render** (§5.66) |
+| `ung_vien_anh_trang(trang)` | liệt kê `(bbox, có_phủ_cả_trang)` của ảnh đáng giữ — **chưa render** (§7.66) |
 | `luu_anh_trang_pdf(...)` | render + lưu ra file những ảnh đã được chọn |
 | `trich_anh_pptx` / `trich_anh_docx` | trích ảnh từ gói Office (blob có sẵn, không phải render) |
 | `ly_do_loai_anh(rong, cao, dt_trang)` | ba chốt hình dạng: kích thước · tỉ lệ cạnh · tỉ lệ diện tích |
@@ -254,11 +470,11 @@ text, còn bước render chỉ chạy cho ảnh đã qua mọi bộ lọc.
 |---|---|
 | `mo_hinh_vision_co_san()` | model đã pull chưa — để giảm cấp thay vì crash |
 | `chu_thich_anh()` | model vision đọc nội dung BÊN TRONG hình → text tìm kiếm được |
-| `bo_sung_chu_thich_vision()` | sửa `noidung` tại chỗ (nối thêm, không thay thế); gộp ảnh trùng nội dung → tra cache → gọi model song song (§5.66) |
-| `trang_can_ocr()` / `ocr_trang_pdf()` | phát hiện + OCR trang đọc hỏng (§5.37, §5.49) |
+| `bo_sung_chu_thich_vision()` | sửa `noidung` tại chỗ (nối thêm, không thay thế); gộp ảnh trùng nội dung → tra cache → gọi model song song (§7.66) |
+| `trang_can_ocr()` / `ocr_trang_pdf()` | phát hiện + OCR trang đọc hỏng (§7.37, §7.49) |
 
 ### `rag/tiep_noi_hoi_thoai.py`
-Đưa NGỮ CẢNH HỘI THOẠI vào truy xuất để hiểu câu hỏi nối tiếp (§5.58). Toàn bộ đường mặc
+Đưa NGỮ CẢNH HỘI THOẠI vào truy xuất để hiểu câu hỏi nối tiếp (§7.58). Toàn bộ đường mặc
 định là TẤT ĐỊNH — không gọi model nào.
 
 | Hàm | Vai trò |
@@ -266,11 +482,11 @@ text, còn bước render chỉ chạy cho ảnh đã qua mọi bộ lọc.
 | `la_cau_hoi_tiep_noi(cau_hoi, lich_su)` | `bool` — câu này có cần ngữ cảnh lượt trước mới hiểu được không (dấu hiệu hồi chỉ + liên từ mở đầu) |
 | `truy_van_ngu_canh(cau_hoi, lich_su)` | ghép các CÂU HỎI trước vào câu hiện tại thành một truy vấn mang đủ chủ đề |
 | `ngu_canh_cho_prompt(lich_su, ngon_ngu)` | khối ngữ cảnh cho prompt sinh câu trả lời, dán nhãn rõ "KHÔNG PHẢI nguồn thông tin" |
-| `viet_lai_cau_hoi(...)` | đường query rewriting bằng LLM — **mặc định TẮT**, xem kết quả âm tính ở §5.58 |
+| `viet_lai_cau_hoi(...)` | đường query rewriting bằng LLM — **mặc định TẮT**, xem kết quả âm tính ở §7.58 |
 | `chuan_bi_truy_van(...)` | điểm vào: trả `{cau_hoi_goc, cau_hoi_chinh, cac_truy_van_phu, ngu_canh_llm, la_tiep_noi, da_viet_lai}` |
 
 ### `rag/doi_chieu_nguon.py`
-Phát hiện MÂU THUẪN giữa các đoạn trích từ những tài liệu KHÁC NHAU (§5.59). Hai tầng như
+Phát hiện MÂU THUẪN giữa các đoạn trích từ những tài liệu KHÁC NHAU (§7.59). Hai tầng như
 retrieval: lọc tất định rồi mới cho LLM đọc kỹ vài cặp sống sót.
 
 | Hàm | Vai trò |
@@ -285,144 +501,154 @@ trang, chỉ mục BM25) tự huỷ khi dữ liệu đổi.
 
 | Method | Ghi chú |
 |---|---|
-| `.them(vectors, metadata_list)` / `.xoa_theo_nguon(ten_file)` | xoá có hiệu lực tức thời (§5.10) |
+| `.them(vectors, metadata_list)` / `.xoa_theo_nguon(ten_file)` | xoá có hiệu lực tức thời (§7.10) |
 | `.tim_kiem` / `.tim_kiem_vi_tri` / `.tim_kiem_tu_khoa` | trả `(metadata\|vị trí, điểm)` giảm dần |
 | `.diem_cosine(vi_tri, vector)` | cosine cho chunk chỉ do BM25 tìm ra (`reconstruct`) |
 | `.chi_muc_trang` / `.theo_nguon_va_trang()` | phục vụ mở rộng ngữ cảnh cùng trang |
 | `.luu()` / `.tai()` | ghi/đọc `index.faiss` + `metadata.pkl` + `index_info.json` |
-| `.ly_do_khong_tuong_thich()` | lý do index không khớp cấu hình hiện tại, hoặc `None` (§5.20) |
+| `.ly_do_khong_tuong_thich()` | lý do index không khớp cấu hình hiện tại, hoặc `None` (§7.20) |
 
 ### `rag/rag_pipeline.py` — `RagPipeline`
-Nhận sẵn `EmbeddingService` + `VectorStore` qua constructor, không tự tạo (§5.8).
+Nhận sẵn `EmbeddingService` + `VectorStore` qua constructor, không tự tạo (§7.8).
 
 | Method | Output |
 |---|---|
-| `.truy_xuat(cau_hoi, top_k, nguon_cho_phep, lich_su)` | `List[{nguon, trang, noidung, doan_khop, diem_similarity}]`; `lich_su` bật đường hiểu câu nối tiếp (§5.58) |
-| `.sinh_cau_tra_loi_theo_luong(…)` | generator `{loai: "suy_luan"\|"cau_tra_loi", them}` — **đường gọi LLM DUY NHẤT** (§5.42) |
+| `.truy_xuat(cau_hoi, top_k, nguon_cho_phep, lich_su)` | `List[{nguon, trang, noidung, doan_khop, diem_similarity}]`; `lich_su` bật đường hiểu câu nối tiếp (§7.58) |
+| `.sinh_cau_tra_loi_theo_luong(…)` | generator `{loai: "suy_luan"\|"cau_tra_loi", them}` — **đường gọi LLM DUY NHẤT** (§7.42) |
 | `.sinh_cau_tra_loi(…)` | vòng gom các mảnh của generator trên, không gọi Ollama riêng |
 | `.hoi_dap_theo_luong(…)` | `{loai: "truy_xuat_xong", …}` → các mảnh → `{loai: "xong", ket_qua}` |
 | `.hoi_dap(…)` | `{cau_tra_loi, cac_chunk_nguon, la_kiem_chung, truy_van, mau_thuan, bam_nguon, do_tre{…}}` |
 
-Hàm module-level `la_cau_hoi_kiem_chung()` (§5.22) và `_phat_hien_ngon_ngu()` (§5.31).
+Hàm module-level `la_cau_hoi_kiem_chung()` (§7.22) và `_phat_hien_ngon_ngu()` (§7.31).
 
-Ngân sách thích ứng (§5.67) nằm ở ba hàm module-level, tách rời để test được mà không cần
+Ngân sách thích ứng (§7.67) nằm ở ba hàm module-level, tách rời để test được mà không cần
 Ollama: `la_cau_hoi_phuc_tap(cau_hoi)` phân loại độ phức tạp; `ngan_sach_token_ngu_canh(...)`
 tính số token còn lại cho đoạn trích sau khi trừ phần cố định của prompt; `nen_ngu_canh(...)`
 bỏ các đoạn xếp hạng thấp nhất cho vừa ngân sách. `_tinh_num_ctx()` nhận thêm `num_predict`
 để không giữ chỗ một khoảng sinh không bao giờ dùng tới — nhưng **không bao giờ** trả về giá
-trị nhỏ hơn `OLLAMA_NUM_CTX` (§5.60).
+trị nhỏ hơn `OLLAMA_NUM_CTX` (§7.60).
 
 ### `rag/citation.py`
 | Hàm | Ghi chú |
 |---|---|
 | `dinh_dang_trich_dan()` | ánh xạ **1-1, giữ nguyên thứ tự** với `cac_chunk` (phần tử i ↔ đoạn `[i+1]` trong prompt), KHÔNG loại trùng |
-| `loc_theo_tham_chieu()` | chỉ giữ nguồn được dẫn, gộp theo `(nguon, trang)`; rỗng với câu từ chối (§5.14) |
-| `cau_theo_trich_dan()` | `Dict[int, List[str]]` — số `[n]` → những CÂU đã dẫn nó (§5.28) |
-| `do_bam_ngu_canh()` | phép đo tất định, `evaluation/metrics.py` import lại — **không có bản sao** (§5.55) |
+| `loc_theo_tham_chieu()` | chỉ giữ nguồn được dẫn, gộp theo `(nguon, trang)`; rỗng với câu từ chối (§7.14) |
+| `cau_theo_trich_dan()` | `Dict[int, List[str]]` — số `[n]` → những CÂU đã dẫn nó (§7.28) |
+| `do_bam_ngu_canh()` | phép đo tất định, `evaluation/metrics.py` import lại — **không có bản sao** (§7.55) |
 
 ### `app.py`
 Giao diện Streamlit và "composition root". Bố cục thanh bên (nguồn tài liệu) + cột đọc căn
-giữa + ô nhập ghim đáy (§5.47). Trích dẫn lưu trong chính message của `st.session_state`
+giữa + ô nhập ghim đáy (§7.47). Trích dẫn lưu trong chính message của `st.session_state`
 (không dùng biến "trích dẫn hiện tại" chung — từng gây bug lệch pha). Giao diện chỉ dẫn ra
 **vị trí** (tên file + trang/slide), không in lại nguyên văn đoạn đã dùng; trường
 `doan_trich` vẫn được tính và trả về cho `evaluation/metrics.py` chấm Citation accuracy.
-Uploader đổi `key` sau mỗi lần xử lý để nút xoá và uploader không đá nhau (§5.15).
+Uploader đổi `key` sau mỗi lần xử lý để nút xoá và uploader không đá nhau (§7.15).
 
 ### `evaluation/`
 | File | Vai trò |
 |---|---|
-| `metrics.py` | Precision@K, Recall@K, MRR, Faithfulness (chấm 3 lần lấy trung vị + cờ tự nghi ngờ, §5.43), Answer Relevance, Citation accuracy (§5.28) |
+| `metrics.py` | Precision@K, Recall@K, MRR, Faithfulness (chấm 3 lần lấy trung vị + cờ tự nghi ngờ, §7.43), Answer Relevance, Citation accuracy (§7.28) |
 | `run_evaluation.py` | nạp `test_questions.json` → chạy pipeline → in bảng + xuất `ket_qua_danh_gia.csv`; dừng hẳn nếu index không khớp cấu hình |
 | `kiem_dinh_judge.py` | đo độ tin cậy của CHÍNH thước đo Faithfulness trên 7 ca đã biết đáp án |
-| `do_nguong_rerank.py` | đo xem điểm rerank có tách được câu lạc đề không (§5.29) |
-| `do_worker_gpu.py` | đo số worker OCR/Vision tối ưu trên máy hiện tại, kèm GPU util + VRAM (§5.68) |
-| `do_dau_cuoi.py` | đo ĐẦU-CUỐI: nạp tài liệu → hỏi được, và hỏi → trả lời xong (§5.68) |
-| `do_quy_mo_index.py` | đo ngưỡng quy mô FAISS: Flat vs IVF vs HNSW (§5.44) |
-| `tao_tai_lieu_mau.py` | sinh bộ tài liệu ĐỘC LẬP để chống overfitting (§5.45) |
-| `kiem_dinh_viet_lai.py` | đo tầng nhận diện câu nối tiếp + ảnh hưởng THẬT lên truy xuất (§5.58) |
-| `kiem_dinh_doi_chieu.py` | đo độ tin cậy của chính cơ chế phát hiện mâu thuẫn, trên 7 ca đã biết đáp án (§5.59) |
+| `do_nguong_rerank.py` | đo xem điểm rerank có tách được câu lạc đề không (§7.29) |
+| `do_worker_gpu.py` | đo số worker OCR/Vision tối ưu trên máy hiện tại, kèm GPU util + VRAM (§7.68) |
+| `do_dau_cuoi.py` | đo ĐẦU-CUỐI: nạp tài liệu → hỏi được, và hỏi → trả lời xong (§7.68) |
+| `do_quy_mo_index.py` | đo ngưỡng quy mô FAISS: Flat vs IVF vs HNSW (§7.44) |
+| `tao_tai_lieu_mau.py` | sinh bộ tài liệu ĐỘC LẬP để chống overfitting (§7.45) |
+| `kiem_dinh_viet_lai.py` | đo tầng nhận diện câu nối tiếp + ảnh hưởng THẬT lên truy xuất (§7.58) |
+| `kiem_dinh_doi_chieu.py` | đo độ tin cậy của chính cơ chế phát hiện mâu thuẫn, trên 7 ca đã biết đáp án (§7.59) |
 
 ---
 
-## 4. Thư viện sử dụng và lý do
+## 6. Technology Stack and Dependencies
+
+Chi tiết phiên bản tối thiểu: [`requirements.txt`](requirements.txt).
 
 | Thư viện | Dùng ở đâu | Lý do chọn |
 |---|---|---|
 | `pdfplumber` | `document_loader` | Trích text theo từng trang PDF kèm số trang — đúng nhu cầu giữ metadata ngay từ bước đọc. |
 | `python-pptx` / `python-docx` | `document_loader` | Thư viện chuẩn đọc cấu trúc slide/đoạn văn, không cần engine chuyển đổi trung gian. |
 | `langchain-text-splitters` | `chunking` | Có sẵn `RecursiveCharacterTextSplitter` đúng thuật toán yêu cầu, nhận `length_function` tuỳ chỉnh. |
-| `tiktoken` | `chunking` | **Chỉ là dự phòng** khi không lấy được tokenizer của model — sai số ~1.9 lần trên tiếng Việt (§5.3). |
+| `tiktoken` | `chunking` | **Chỉ là dự phòng** khi không lấy được tokenizer của model — sai số ~1.9 lần trên tiếng Việt (§7.3). |
 | `sentence-transformers` | `embedding`, `reranker` | Chạy model embedding/cross-encoder **local**; đồng thời cho truy cập tokenizer thật của model. |
-| `faiss-cpu` | `vector_store` | Vector DB đã chốt; `IndexFlatIP` phù hợp quy mô corpus đồ án (§5.1, §5.44). |
-| `ollama` | `rag_pipeline`, `metrics` | Gọi LLM **local**; hỗ trợ `format` nhận JSON Schema để ép structured output (§5.6). |
-| `langdetect` | `rag_pipeline` | Phát hiện VI/EN — nhẹ, local; cách dùng đã chỉnh lại ở §5.31. |
+| `faiss-cpu` | `vector_store` | Vector DB đã chốt; `IndexFlatIP` phù hợp quy mô corpus đồ án (§7.1, §7.44). |
+| `ollama` | `rag_pipeline`, `metrics` | Gọi LLM **local**; hỗ trợ `format` nhận JSON Schema để ép structured output (§7.6). |
+| `langdetect` | `rag_pipeline` | Phát hiện VI/EN — nhẹ, local; cách dùng đã chỉnh lại ở §7.31. |
 | `streamlit` | `app.py` | Giao diện web nhanh, `session_state` đáp ứng đúng nhu cầu "chỉ giữ lịch sử trong 1 phiên". |
 | `pytest` | `tests/` | Framework test chuẩn. |
 
 **Không dùng** và lý do:
 - `python-dotenv` — chỉ cần đọc vài dòng `KEY=VALUE`, tự viết loader nhỏ trong `config.py`.
 - `rank_bm25` — công thức BM25 ngắn và cố định; tự cài để tự quyết cách tách từ tiếng Việt
-  (§5.21), vốn là phần quan trọng hơn bản thân công thức.
+  (§7.21), vốn là phần quan trọng hơn bản thân công thức.
 - `underthesea` / `VnCoreNLP` — nặng; cách lập chỉ mục bigram đã giải quyết được vấn đề âm
   tiết rời mà không cần thêm model.
 - `ChromaDB`, backend `FastAPI` — ngoài phạm vi đồ án đã chốt.
 
 > *Reranking trước đây cũng nằm trong danh sách "không dùng". Quyết định đã đảo lại có chủ
-> đích — xem §5.24.*
+> đích — xem §7.24.*
 
 ---
 
-## 5. Quyết định thiết kế quan trọng
+---
 
-*(Số §5.x được giữ nguyên vì README và các tài liệu khác tham chiếu tới chúng.)*
+## 7. Design Decisions
 
-### 5.1 `IndexFlatIP` thay vì `IndexFlatL2`
+Mục này ghi lại **vì sao** mỗi lựa chọn được chốt, kèm số liệu đã đo ở thời điểm ra
+quyết định. Đánh số `§7.x` bên dưới là **định danh ổn định** — README, KET_QUA_DO_DAC
+và cả comment trong code đều tham chiếu tới chúng, nên số cũ không bị dùng lại cho
+mục khác.
+
+> Các bảng số trong mục này gắn với thời điểm ra quyết định; số liệu hiện hành nằm ở
+> [KET_QUA_DO_DAC.md](KET_QUA_DO_DAC.md).
+
+### 7.1 `IndexFlatIP` thay vì `IndexFlatL2`
 Vector đã chuẩn hoá norm = 1 → inner product **tương đương cosine similarity**, đúng thước
 đo "độ liên quan ngữ nghĩa" cần dùng, thay vì khoảng cách Euclid thô.
 
-### 5.2 Chunk size 160 token, overlap 32 token
+### 7.2 Chunk size 160 token, overlap 32 token
 Model giới hạn 512 token; nội dung vượt bị cắt khi encode **không báo lỗi**. 160 token đủ
 trọn ý mà vẫn còn biên an toàn rộng; overlap 32 giữ ngữ cảnh ở ranh giới hai chunk.
 Đo trên giáo trình 230 trang: **2957 → 915 chunk**, độ dài trung bình **40 → 140 token thật**.
 
-### 5.3 Đếm token bằng tokenizer thật, `tiktoken` chỉ là dự phòng
+### 7.3 Đếm token bằng tokenizer thật, `tiktoken` chỉ là dự phòng
 Đo trên corpus tiếng Việt: tiktoken đếm gấp **~1.9 lần** tokenizer thật (nền XLM-R) — chunk
 "100 token" thực chất chỉ ~40 token, tức dùng 31% giới hạn. Hệ quả không phải "chunk hơi
 nhỏ" mà là **nội dung bị băm vụn**: mỗi chunk 1-2 câu, vector mô tả một mẩu ngữ nghĩa lưng
 chừng.
 
-### 5.4 Chuẩn hoá Unicode NFC ngay khi đọc tài liệu
+### 7.4 Chuẩn hoá Unicode NFC ngay khi đọc tài liệu
 Hai chuỗi "giống hệt nhau" khi hiển thị có thể khác nhau về byte, gây lỗi so khớp ở các bước
 sau — đặc biệt là so khớp `(nguon, trang)` trong `evaluation/metrics.py`.
 
-### 5.5 Ép UTF-8 cho stdout/stderr trong `config.py`
+### 7.5 Ép UTF-8 cho stdout/stderr trong `config.py`
 Console Windows mặc định `cp1252` không encode được tiếng Việt → mọi `print()`/log có dấu
 sẽ crash. `config.py` được import đầu tiên ở mọi entry point nên là chỗ sửa 1 lần cho tất cả.
 
-### 5.6 LLM-as-judge dùng JSON Schema thay vì `format="json"`
+### 7.6 LLM-as-judge dùng JSON Schema thay vì `format="json"`
 `format="json"` chỉ ép cú pháp; model từng trả `{"answer": "0.5"}` thay vì `{"diem", "ly_do"}`
 khiến điểm mặc định về 0.0 dù câu trả lời đúng. Truyền JSON Schema đầy đủ → Ollama ép đúng
 cấu trúc field bằng constrained decoding. (Nhưng schema **không** ràng buộc được khoảng giá
-trị — xem §5.48.)
+trị — xem §7.48.)
 
-### 5.7 Faithfulness của câu trả lời từ chối luôn = 1.0
+### 7.7 Faithfulness của câu trả lời từ chối luôn = 1.0
 Câu từ chối không đưa ra thông tin nào nên về định nghĩa không thể "bịa"; quy tắc này nêu rõ
 trong prompt vì thực tế model từng chấm 0.0. Answer Relevance vẫn để judge chấm bình thường
 (thường thấp) — đúng quy ước chuẩn trong đánh giá RAG.
 
-### 5.8 `RagPipeline` không tự tạo `EmbeddingService`/`VectorStore`
+### 7.8 `RagPipeline` không tự tạo `EmbeddingService`/`VectorStore`
 Cả hai được khởi tạo ở `app.py`/`run_evaluation.py` rồi truyền vào. Load model tốn vài giây
 và tốn RAM; tách rời cũng đảm bảo Ingestion và Query dùng chung đúng 1 instance model.
 
-### 5.9 Không backend API, không conversation memory nhiều phiên
+### 7.9 Không backend API, không conversation memory nhiều phiên
 Quyết định phạm vi đã chốt trước khi code, không phải giới hạn kỹ thuật.
 
-### 5.10 THÊM tài liệu build lại từ đầu, XOÁ thì incremental
+### 7.10 THÊM tài liệu build lại từ đầu, XOÁ thì incremental
 Bất đối xứng có chủ đích: **thêm** dù sao cũng phải embed nội dung mới nên incremental không
 tiết kiệm được gì; **xoá** chỉ cần bỏ vector cũ (rẻ, tức thời) và việc trích dẫn còn trỏ tới
 file người dùng đã xoá là hành vi gây hiểu lầm, phải tránh ngay.
 
-> **ĐÃ THAY THẾ — xem §5.66.** Lập luận trên có một lỗ hổng chỉ lộ ra khi corpus lớn lên: nó
+> **ĐÃ THAY THẾ — xem §7.66.** Lập luận trên có một lỗ hổng chỉ lộ ra khi corpus lớn lên: nó
 > đúng cho **tài liệu vừa thêm** (file đó dù sao cũng phải embed) nhưng bỏ qua **25 tài liệu
 > còn lại**, vốn chẳng đổi gì mà vẫn bị đọc lại, OCR lại, chú thích ảnh lại và encode lại.
 > Thứ còn thiếu lúc đó không phải là ý tưởng incremental mà là một cách ĐÁNG TIN để biết tài
@@ -430,7 +656,7 @@ file người dùng đã xoá là hành vi gây hiểu lầm, phải tránh ngay
 > incremental" giữ nguyên và nay áp dụng cho cả file bị xoá khỏi thư mục, không chỉ file xoá
 > qua giao diện.
 
-### 5.11 Dựng đoạn trích QUANH chunk khớp, không gộp nguyên trang ("small-to-big")
+### 7.11 Dựng đoạn trích QUANH chunk khớp, không gộp nguyên trang ("small-to-big")
 Chunk nhỏ tối ưu cho *retrieval* nhưng khiến ngữ cảnh đưa cho LLM bị vụn. Bản trước sửa bằng
 cách **gộp nguyên trang** — và chính cách sửa đó gây lỗi "tài liệu dài thì trả lời và trích
 dẫn không chính xác":
@@ -446,19 +672,19 @@ sau/liền trước trong cùng trang tới `NGAN_SACH_KY_TU_MOI_DOAN` (ưu tiê
 mất mát hay gặp nhất là đoạn liệt kê bị cắt ngang). Đúng cho cả tài liệu dài lẫn ngắn: trang
 thưa chữ vẫn lọt trọn ngân sách nên hành vi y hệt bản cũ.
 
-### 5.12–5.13 Nhận diện ngôn ngữ và "trang" của DOCX
+### 7.12–7.13 Nhận diện ngôn ngữ và "trang" của DOCX
 `langdetect` thay vì heuristic dấu tiếng Việt (xử lý được cả câu không dấu) — cách dùng đã
-chỉnh lại ở §5.31. DOCX không lưu số trang trong XML, nên tách theo **dấu ngắt trang cứng**
+chỉnh lại ở §7.31. DOCX không lưu số trang trong XML, nên tách theo **dấu ngắt trang cứng**
 (có sẵn trong XML) thay vì render lại layout bằng LibreOffice headless; không có ngắt trang
-nào thì cả file là 1 "trang" — thông tin đúng, chỉ kém chi tiết. Hệ quả với thước đo: xem §5.39.
+nào thì cả file là 1 "trang" — thông tin đúng, chỉ kém chi tiết. Hệ quả với thước đo: xem §7.39.
 
-### 5.14 Hiển thị đúng những nguồn câu trả lời THẬT SỰ tham chiếu tới
+### 7.14 Hiển thị đúng những nguồn câu trả lời THẬT SỰ tham chiếu tới
 Bản trước luôn hiển thị đoạn có `diem_similarity` cao nhất — giả định này **sai với tài liệu
 dài**: khi hàng chục trang cùng chủ đề có điểm sát nhau, đoạn thắng điểm có thể chỉ nhắc tới
 chủ đề. System prompt bắt LLM gắn số `[n]`, nên những con số đó là **bằng chứng trực tiếp**.
 `loc_theo_tham_chieu()` lọc theo 3 lớp, lớp sau chỉ dùng khi lớp trước không có kết quả:
 (1) số `[n]`; (2) số trang được nhắc trong câu trả lời; (3) nguồn liên quan nhất — kèm cờ
-cảnh báo (§5.54). Câu **từ chối** không hiển thị nguồn nào: vừa nói "không tìm thấy" vừa chỉ
+cảnh báo (§7.54). Câu **từ chối** không hiển thị nguồn nào: vừa nói "không tìm thấy" vừa chỉ
 vào một trang là tự mâu thuẫn. Chuỗi từ chối nằm ở `config.CAU_TU_CHOI` — cả 3 nơi dùng nó
 phải khớp tuyệt đối, lệch một dấu chấm là cơ chế nhận diện hỏng mà không có lỗi nào báo ra.
 
@@ -467,9 +693,9 @@ streaming từng mảnh, bản vẽ cuối, vẽ lại lịch sử, và chế đ
 LLM sinh ra và vẫn được hệ thống đọc — nhưng với người đọc, số hiệu là thứ tự đoạn trích
 TRONG PROMPT, một thứ tự họ không nhìn thấy nên cũng không tra ngược được. Quan trọng: chỉ gỡ
 ở tầng HIỂN THỊ. Bản gốc còn số vẫn được lưu trong lịch sử chat, vì gỡ khỏi dữ liệu sẽ phá
-đúng cơ chế trên và phá luôn phép chấm Citation accuracy (§5.28) — im lặng, không lỗi nào báo
+đúng cơ chế trên và phá luôn phép chấm Citation accuracy (§7.28) — im lặng, không lỗi nào báo
 ra. Khi streaming, mảnh đang tới có thể cắt ngang giữa `[3,4]`, nên hàm này cắt cả đuôi ngoặc
-dở — cùng lý do khiến việc bóc thẻ `<think>` phải là máy trạng thái (§5.42).
+dở — cùng lý do khiến việc bóc thẻ `<think>` phải là máy trạng thái (§7.42).
 
 **Một lỗi có sẵn lộ ra khi thử hiện số lên màn hình:** câu trả lời thật ghi `[6]` và `[3,4,5]`
 nhưng mẫu cũ `\[(\d+)\]` chỉ khớp `[6]` — **không bắt dạng gộp nhiều số trong một cặp ngoặc**.
@@ -478,11 +704,11 @@ accuracy, nên mọi ý dẫn nguồn theo dạng gộp đều bị bỏ khỏi 
 sót đúng những câu trả lời dẫn nhiều nguồn cho một ý. Nay bắt cả `[3,4,5]`, `[3, 4]`, `[3;4]`
 lẫn `[1][2]`, và không đụng tới mốc `[BẢNG]`/`[HÌNH]`.
 
-**Số liệu §5.38 có phải đo lại không? ĐÃ ĐO — và câu trả lời là KHÔNG.** Chạy mẫu cũ và mẫu
+**Số liệu §7.38 có phải đo lại không? ĐÃ ĐO — và câu trả lời là KHÔNG.** Chạy mẫu cũ và mẫu
 mới trên đúng 29 câu trả lời đã lưu ở `ket_qua_danh_gia.csv` (phép so tất định, không gọi
 model): chỉ **1/29 câu** dùng dạng gộp, bỏ sót 2 số. Kể cả giả định cực đoan nhất cho hai cặp
 bổ sung đó, Citation accuracy trung bình chỉ đổi trong khoảng **0.596 – 0.615** so với 0.605
-đã báo cáo — tức **±0.01**, trong khi §5.46 đã kết luận chênh lệch dưới ~0.10 của chính metric
+đã báo cáo — tức **±0.01**, trong khi §7.46 đã kết luận chênh lệch dưới ~0.10 của chính metric
 này *không nên được diễn giải là gì cả*. Con số 0.61 đứng vững.
 
 Ghi lại vì đây là một cạm bẫy về quy trình chứ không phải về code: phát hiện ra một lỗi ở
@@ -490,18 +716,18 @@ thước đo thì phản xạ đầu tiên là "phải đo lại tất cả" —
 (dựng lại index từ `TaiLieuTest/` rồi chạy 29 câu). Chỉ mất vài giây để hỏi *lỗi đó ảnh hưởng
 bao nhiêu* trước khi trả cái giá đó.
 
-### 5.15 Xoá tài liệu: đồng bộ giữa uploader và nút xoá
+### 7.15 Xoá tài liệu: đồng bộ giữa uploader và nút xoá
 `st.file_uploader` trả về cùng danh sách file trên **mọi** lần rerun, nên `if file_upload:`
 sẽ ghi đè file lại sau mỗi lần bấm nút xoá. Fix: đổi `key` của uploader (bộ đếm tăng sau mỗi
 lần xử lý upload) để Streamlit coi đó là widget mới, rỗng.
 
-### 5.16 Nút "toàn màn hình" tự làm đã bị gỡ
-Khi bố cục chuyển sang thanh bên (§5.47), thu gọn thanh bên bằng nút `«` CHÍNH LÀ chế độ
+### 7.16 Nút "toàn màn hình" tự làm đã bị gỡ
+Khi bố cục chuyển sang thanh bên (§7.47), thu gọn thanh bên bằng nút `«` CHÍNH LÀ chế độ
 toàn màn hình — cùng kết quả, không state, không CSS bám vào DOM, không nút. Ghi lại vì đây
 là dạng quyết định dễ bỏ sót: một tính năng tự viết đôi khi cần **biến mất** cùng với thứ đã
 sinh ra nó, chứ không phải được thay bằng tính năng tự viết khác.
 
-### 5.17 Dọn watermark + loại trang Mục lục
+### 7.17 Dọn watermark + loại trang Mục lục
 PDF từ StuDocu có watermark `lOMoARcPSD|<số>` và `Downloaded by …` lặp trên hầu hết các trang
 → mọi chunk dính chung một đoạn nhiễu giống hệt nhau, giảm độ phân biệt ngữ nghĩa.
 
@@ -516,7 +742,7 @@ trang nội dung 0.0–0.07.
 trang in trên tài liệu — file có bìa/lời nói đầu chưa đánh số thì hai con số lệch nhau một
 khoảng cố định. Đây là giới hạn cố hữu, không phải bug.
 
-### 5.18 Chunk tự co lại cho vừa model, và bỏ chunk quá ngắn
+### 7.18 Chunk tự co lại cho vừa model, và bỏ chunk quá ngắn
 Hai chặn cứng, đều nhằm loại bỏ hỏng hóc **không báo lỗi**: (a) `kich_thuoc_chunk_an_toan()`
 hạ chunk size xuống `max_seq_length - biên` — phần vượt giới hạn bị cắt âm thầm lúc encode
 nên **vĩnh viễn không tìm thấy được**; (b) bỏ chunk ngắn hơn 25 ký tự (mẩu vụn không mang đủ
@@ -525,7 +751,7 @@ ngữ nghĩa nhưng vẫn chiếm 1 vector và vẫn có thể lọt top với c
 `vi_tri` đánh số **trước** khi lọc nên dãy có thể khuyết — chủ ý, vì pipeline sắp theo
 `vi_tri` rồi lấy phần tử liền kề *trong danh sách*, không dựa vào số liên tục.
 
-### 5.19 Đổi sang model retrieval (họ E5) và mã hoá bất đối xứng
+### 7.19 Đổi sang model retrieval (họ E5) và mã hoá bất đối xứng
 `paraphrase-multilingual-MiniLM-L12-v2` huấn luyện cho **đo độ giống nhau giữa 2 câu cùng
 loại** (STS), không phải cho **retrieval** (câu hỏi ngắn ↔ đoạn tài liệu dài) — dùng sai loại
 model là một nguyên nhân gốc khiến truy xuất hay chọn đoạn "nghe giống câu hỏi" thay vì đoạn
@@ -536,13 +762,13 @@ tài liệu cần `passage: `. Thiếu tiền tố thì chất lượng tụt m�
 `EmbeddingService` cố tình không có `encode()` dùng chung. Tiền tố tự suy từ tên model nên
 đổi sang model khác họ thì nó tự tắt.
 
-### 5.20 Vân tay cấu hình đi kèm index (`index_info.json`)
+### 7.20 Vân tay cấu hình đi kèm index (`index_info.json`)
 Đổi model embedding rồi quên build lại **không gây crash** (hai model có thể cùng số chiều)
 nhưng kết quả gần như ngẫu nhiên, và không thể phát hiện qua kết quả. Phải đối chiếu bằng
 thông tin ghi lúc build. `app.py` cảnh báo; `run_evaluation.py` **dừng hẳn** — một bảng số
 liệu trông bình thường nhưng vô nghĩa còn tệ hơn không có số liệu nào.
 
-### 5.21 Tìm kiếm lai vector + BM25, hợp nhất bằng RRF
+### 7.21 Tìm kiếm lai vector + BM25, hợp nhất bằng RRF
 Embedding nén cả đoạn về 1 vector nên làm mờ chi tiết **hiếm và cụ thể** (số hiệu điều luật,
 thuật ngữ, con số); BM25 mạnh đúng ở đó và yếu đúng chỗ vector mạnh.
 
@@ -556,9 +782,9 @@ hiếm hơn hẳn nên IDF cao). Giữ nguyên dấu — bỏ dấu sẽ gộp "
 Ngoài ra `SO_DOAN_TOI_DA_MOI_TRANG` chặn cả `TOP_K` suất dồn vào 1 trang — rất hay xảy ra
 với tài liệu dài, và đó chính là kiểu lỗi "câu trả lời chỉ bám 1 chỗ, bỏ sót phần còn lại".
 
-*(Kết quả đo cuối cùng khiến BM25 bị tắt mặc định — xem §5.30.)*
+*(Kết quả đo cuối cùng khiến BM25 bị tắt mặc định — xem §7.30.)*
 
-### 5.22 Phát hiện khẳng định sai (chống a dua)
+### 7.22 Phát hiện khẳng định sai (chống a dua)
 Lỗi đã gặp: người dùng khẳng định nội dung sai, hệ thống vẫn "gật đầu". Hai nguyên nhân độc
 lập, phải sửa cả hai:
 
@@ -569,13 +795,13 @@ KHÔNG ĐỀ CẬP`) kèm trích **nguyên văn** căn cứ. Hai ràng buộc n�
 model không còn được viết một đoạn chung chung *nghe như đang đồng ý*. Nhận diện cố ý ưu tiên
 độ chính xác hơn độ phủ; phần bỏ sót đã có quy tắc ở prompt thường đỡ lại.
 
-**(b) Ngữ cảnh quá loãng** — việc thu gọn ngữ cảnh ở §5.11 cũng là một phần của cách sửa.
+**(b) Ngữ cảnh quá loãng** — việc thu gọn ngữ cảnh ở §7.11 cũng là một phần của cách sửa.
 
 Kết quả đo (giáo trình 230 trang): 5/5 khẳng định sai bị bác đúng kèm căn cứ nguyên văn
 ("Nhà nước có năm đặc điểm", "cấu thành bởi bốn yếu tố"…), khẳng định ĐÚNG không bị phản bác
-bừa, câu lạc đề bị từ chối không kèm trích dẫn. Xem thêm §5.56 về thứ tự bố cục.
+bừa, câu lạc đề bị từ chối không kèm trích dẫn. Xem thêm §7.56 về thứ tự bố cục.
 
-### 5.23 Tham số `think` của Ollama: đo rồi mới dùng
+### 7.23 Tham số `think` của Ollama: đo rồi mới dùng
 | Cách gọi | Kết quả |
 |---|---|
 | `think=True` / không truyền gì | máy chủ tách suy luận sang `message["thinking"]`, `content` sạch |
@@ -585,7 +811,7 @@ Khi không cần suy luận thì **bỏ hẳn tham số**, tuyệt đối không
 cũng đã bỏ: đo thực tế cho thấy model vẫn sinh ~15.000 ký tự suy luận và không nhanh hơn
 đáng kể (43.7s so với 47.0s — trong khoảng nhiễu).
 
-### 5.24 Xếp hạng lại bằng cross-encoder (rerank)
+### 7.24 Xếp hạng lại bằng cross-encoder (rerank)
 Quyết định "ngoài phạm vi" của bản trước đã được đảo lại có chủ đích: đúng loại lỗi nó giải
 quyết — "lấy nhầm đoạn cùng chủ đề nhưng sai chi tiết" — là lỗi còn tồn đọng sau khi đã làm
 hết những việc rẻ hơn.
@@ -603,11 +829,11 @@ Tầng 1 quét rộng lấy vài chục ứng viên, tầng 2 đọc kỹ vài c
 Chọn 30 vì +6 giây chỉ chiếm ~15% tổng thời gian trả lời. **Điểm cosine được GIỮ NGUYÊN**,
 rerank chỉ đổi THỨ TỰ CHỌN — trộn hai thang đo vào cùng một trường là kiểu lỗi rất khó lần ra.
 
-> Cột thời gian ở trên đo **trên CPU**. Sau khi reranker được đưa lên GPU (§5.68), 30 cặp mất
+> Cột thời gian ở trên đo **trên CPU**. Sau khi reranker được đưa lên GPU (§7.68), 30 cặp mất
 > 1,18 s và tổng bước truy xuất còn 0,45 s — tức ~1,3% một lượt hỏi thay vì ~15%
 > (KET_QUA_DO_DAC.md §8.2, §8.7). Lựa chọn "30 ứng viên" vì thế càng an toàn hơn, không đổi.
 
-### 5.25 Nhận diện tiêu đề để cắt chunk theo ranh giới ngữ nghĩa
+### 7.25 Nhận diện tiêu đề để cắt chunk theo ranh giới ngữ nghĩa
 Tiêu đề được đưa lên **đầu** danh sách separator vì nó là ranh giới ngữ nghĩa mạnh nhất.
 Ba định dạng, ba mức tin cậy: DOCX (`style.name` bắt đầu bằng `"Heading"`) và PPTX
 (`slide.shapes.title`) là metadata thật; PDF chỉ còn hình thức — cỡ chữ lớn hơn cỡ áp đảo
@@ -617,7 +843,7 @@ dùng cỡ chữ nền khác nhau).
 Đo trên bộ mẫu (24 câu): MRR 0.938 → **0.958**, đúng hạng 1 21/24 → **22/24**. Cải thiện có
 thật nhưng **nhỏ** và nằm trong biên nhiễu — giữ vì không gây hại, không nên diễn giải quá lên.
 
-### 5.26 Bảng biểu: giữ nguyên cấu trúc hàng-cột
+### 7.26 Bảng biểu: giữ nguyên cấu trúc hàng-cột
 Bản trước làm mất bảng theo 3 cách: DOCX không đọc `document.tables`; PPTX nối các ô thành
 dòng rời rạc; PDF trộn ô thành text lộn xộn. Hệ quả: câu hỏi cần đọc giao điểm hàng-cột
 không trả lời được dù dữ liệu vẫn trong index.
@@ -631,7 +857,7 @@ cả text trong bảng (phải loại vùng bbox của bảng ra); PPTX `for sha
 **không** thấy gì bên trong group shape (`duyet_shape()` đệ quy, dùng chung cho cả đọc text
 lẫn trích ảnh nên không nơi nào quên).
 
-### 5.27 Hình ảnh: trích ra, gắn chú thích, và để model vision đọc
+### 7.27 Hình ảnh: trích ra, gắn chú thích, và để model vision đọc
 Hai tầng tách rời vì chi phí chênh nhau xa. **Tầng 1** (BẬT, gần như miễn phí): ảnh lưu ra
 `data/images/`, ghép với văn bản lân cận — ưu tiên dòng dạng "Hình 3: …" vì nó mô tả ĐÚNG
 hình đó. **Tầng 2** (model vision đọc nội dung BÊN TRONG hình): chú thích chỉ cho biết hình
@@ -639,9 +865,9 @@ TÊN là gì; câu hỏi mà đáp án nằm trong các ô của sơ đồ thì 
 
 Mô tả được **nối thêm** sau chú thích chứ không thay thế — hai nguồn bổ khuyết nhau. Giảm
 cấp thay vì hỏng: model chưa pull thì ghi cảnh báo và bỏ qua, không làm hỏng cả lần build.
-*(Mặc định của tầng 2 đã đổi thành BẬT sau khi đo lại chi phí — xem §5.34.)*
+*(Mặc định của tầng 2 đã đổi thành BẬT sau khi đo lại chi phí — xem §7.34.)*
 
-### 5.28 Đo độ chính xác của TRÍCH DẪN, tách khỏi độ trung thực
+### 7.28 Đo độ chính xác của TRÍCH DẪN, tách khỏi độ trung thực
 | | Faithfulness | Citation accuracy |
 |---|---|---|
 | Câu hỏi đo | Toàn bộ câu trả lời có bịa không? | Số `[n]` gắn kèm mỗi ý có trỏ đúng chỗ không? |
@@ -653,11 +879,11 @@ vào nguồn sẽ không thấy điều họ vừa đọc. Ba quy ước:
 - Câu **TỪ CHỐI** không dẫn số nào → `None`, loại khỏi trung bình (không dẫn nguồn là ĐÚNG).
 - Câu **TRẢ LỜI THẬT** mà không dẫn số nào → **0.0**. Bản trước gộp chung với câu từ chối, và
   cái giá rất cụ thể: một lần sửa prompt khiến model bỏ trích dẫn ở 3 câu nhưng điểm gần như
-  không đổi — **lỗi đi lọt qua thước đo** (§5.46).
+  không đổi — **lỗi đi lọt qua thước đo** (§7.46).
 
 Chạy ở tầng đánh giá, không phải lúc chạy thật (mỗi cặp tốn một lượt LLM).
 
-### 5.29 Từ chối dựa trên điểm rerank — thứ mà cosine không làm được
+### 7.29 Từ chối dựa trên điểm rerank — thứ mà cosine không làm được
 | Nhóm câu hỏi | Cosine (min–max) | Rerank (min–max) |
 |---|---|---|
 | Đúng chủ đề, tiếng Việt | 0.865 – 0.905 | 0.200 – 0.996 |
@@ -673,11 +899,11 @@ Ngưỡng đặt **thấp có chủ đích** vì hai loại sai không ngang gi�
 hỏng thấy ngay, còn bỏ lọt câu lạc đề chỉ rơi xuống quy tắc từ chối trong prompt vốn đang
 chạy tốt. Sau khi đo trên corpus **song ngữ** thật, ngưỡng hạ tiếp 0.005 → **0.001**: con số
 0.005 hiệu chỉnh trên corpus thuần tiếng Việt đã từ chối oan câu hỏi chéo ngôn ngữ hợp lệ
-(0.0023). Kiểm chứng ngưỡng này không bị overfitting: §5.57.
+(0.0023). Kiểm chứng ngưỡng này không bị overfitting: §7.57.
 
 Lợi ích phụ: câu lạc đề bị chặn trong ~6,6 giây thay vì 33–67 giây, vì không phải gọi LLM.
 
-### 5.30 BM25 bị TẮT mặc định — một kết quả âm tính đo được
+### 7.30 BM25 bị TẮT mặc định — một kết quả âm tính đo được
 Đo trên corpus song ngữ thật (13 tài liệu, 5909 chunk, 26 câu hỏi chia 3 nhóm), cột là
 MRR *cùng-ngữ / chéo-ngữ / từ-khoá / **chung***:
 
@@ -699,7 +925,7 @@ Hai thay đổi: `SU_DUNG_TIM_KIEM_LAI` (bật/tắt) → `TRONG_SO_BM25` (số 
 số**); mặc định `0`. Code `lexical_search.py` **giữ nguyên, không xoá** — corpus khác có thể
 cho kết quả khác, bật lại thì nên đo trước bằng thí nghiệm tương tự.
 
-### 5.31 Chọn giữa hai ngôn ngữ, không phải nhận diện trong hàng trăm thứ tiếng
+### 7.31 Chọn giữa hai ngôn ngữ, không phải nhận diện trong hàng trăm thứ tiếng
 Bản trước viết `"en" if detect(q) == "en" else "vi"`. Sai thực tế: `langdetect` chấm
 *"What does criminal law regulate?"* là **tiếng Catalan (0.71)**, tiếng Anh chỉ 0.29 → câu
 tiếng Anh bị trả lời bằng tiếng Việt. Ba bước, dừng ở bước có bằng chứng chắc nhất:
@@ -712,14 +938,14 @@ tiếng Anh bị trả lời bằng tiếng Việt. Ba bước, dừng ở bư�
 
 Kết quả: **0/10 sai** trên bộ kiểm (trước là 1/10).
 
-### 5.32 Bảng được phép dài hơn văn xuôi
+### 7.32 Bảng được phép dài hơn văn xuôi
 160 token là lựa chọn về độ chính xác truy xuất cho **văn xuôi**; áp cùng con số cho bảng là
 nhầm mục đích — cắt nhỏ bảng phá đúng thứ khiến nó là bảng (dòng tiêu đề cột). Ràng buộc
 **cứng** duy nhất là giới hạn model. Đo trên tài liệu thật: **15 bảng bị cắt oan** (phần lớn
 dài 164–476 token, vẫn nằm gọn trong giới hạn 496). Trần cho bảng vì thế suy **từ chính
 model**, không thêm tham số cấu hình mới.
 
-### 5.33 Bảy lỗi chỉ lộ ra khi chạy trên tài liệu THẬT
+### 7.33 Bảy lỗi chỉ lộ ra khi chạy trên tài liệu THẬT
 Khi đem hệ thống (phát triển trên bộ tài liệu tự sinh) chạy trên 13 file thật (1221 trang,
 5876 chunk):
 
@@ -729,9 +955,9 @@ Khi đem hệ thống (phát triển trên bộ tài liệu tự sinh) chạy tr
 | 2 | Bảng dò nhầm nuốt tiêu đề slide | khối `[BẢNG]` giảm từ gần như mọi trang xuống 2 trang |
 | 3 | Ảnh liên kết làm sập build | `ValueError` giết cả lần build index |
 | 4 | Ảnh SVG biến mất âm thầm | 0/18 ảnh vào index, **không lỗi nào báo ra** |
-| 5 | Nhận nhầm ngôn ngữ (§5.31) | câu tiếng Anh bị trả lời bằng tiếng Việt |
-| 6 | BM25 phá chéo ngôn ngữ (§5.30) | MRR chéo ngôn ngữ 0.703 → 0.536 |
-| 7 | Bảng bị cắt oan (§5.32) | 15 bảng mất dòng tiêu đề cột |
+| 5 | Nhận nhầm ngôn ngữ (§7.31) | câu tiếng Anh bị trả lời bằng tiếng Việt |
+| 6 | BM25 phá chéo ngôn ngữ (§7.30) | MRR chéo ngôn ngữ 0.703 → 0.536 |
+| 7 | Bảng bị cắt oan (§7.32) | 15 bảng mất dòng tiêu đề cột |
 
 Lỗi #4 nguy hiểm nhất: không crash, không cảnh báo, chỉ âm thầm mất toàn bộ hình ảnh của một
 file 9,4 MB (PowerPoint đời mới chèn ảnh SVG kèm PNG dự phòng mà `python-pptx` không lần ra
@@ -750,14 +976,14 @@ chương thay vì trang nội dung thật:
 Đây là cạm bẫy kinh điển khi đánh giá RAG: nhãn sai thì mọi kết luận rút ra đều sai theo, và
 sai theo hướng khiến người ta đi tối ưu nhầm chỗ.
 
-### 5.34 Một phép đo sai suýt khiến cả tính năng bị loại
+### 7.34 Một phép đo sai suýt khiến cả tính năng bị loại
 Chú thích ảnh bằng vision ban đầu bị đánh giá **~30 giây/hình** (2,4 tiếng cho 291 ảnh) nên
 để mặc định TẮT. Con số đó sai: nó đo trên **đúng một lượt gọi** nên đã tính cả thời gian nạp
 model. Đo lại khi model đã nạp: **0,7–2,9 giây/hình, trung bình 1,9** — 291 ảnh chỉ ~9 phút.
 
 Bài học: chi phí khởi động một lần phải được tách khỏi chi phí biên trước khi kết luận.
 
-### 5.35 Trần số đoạn là ảnh — khi một cải tiến làm hỏng chỗ khác
+### 7.35 Trần số đoạn là ảnh — khi một cải tiến làm hỏng chỗ khác
 Bật chú thích ảnh xong, câu hỏi về nội dung hình tìm được ngay. Nhưng đo lại **toàn bộ** thì
 Recall@K tụt 0,96 → 0,92 (nhóm slide tiếng Anh 0,97 → 0,86): 303 bản ghi ảnh mang mô tả dài
 đã **chiếm mất suất `TOP_K`** của các trang văn bản đúng.
@@ -771,15 +997,15 @@ Recall@K tụt 0,96 → 0,92 (nhóm slide tiếng Anh 0,97 → 0,86): 303 bản 
 Ví dụ rõ nhất cho nguyên tắc *"đo lại TOÀN BỘ sau mỗi thay đổi"*: một tính năng hoạt động
 đúng như thiết kế vẫn có thể làm hỏng chỗ khác.
 
-### 5.36 Dọn mã ký tự PDF không giải mã được `(cid:NN)`
+### 7.36 Dọn mã ký tự PDF không giải mã được `(cid:NN)`
 PDF nhúng font không kèm bảng ToUnicode (rất hay gặp với font toán) → `pdfplumber` trả về
 nguyên mã `(cid:10)`. Đo trên Bishop: **1761/4197 chunk (42%)** dính rác này; lọc bỏ đưa
 xuống còn **1 chunk**. Đây là **dọn nhiễu, không phải mất thông tin** — thông tin đã mất từ
 khâu đọc file. Giới hạn còn lại: câu hỏi về *khái niệm* vẫn tốt, hỏi về *công thức cụ thể*
 thì không có dữ liệu.
 
-### 5.37 OCR dự phòng cho trang PDF đọc hỏng
-Muốn khôi phục nội dung §5.36 làm mất thì phải đọc lại bằng mắt — hệ thống đã sẵn có một
+### 7.37 OCR dự phòng cho trang PDF đọc hỏng
+Muốn khôi phục nội dung §7.36 làm mất thì phải đọc lại bằng mắt — hệ thống đã sẵn có một
 "con mắt": chính model vision dùng cho chú thích ảnh. Không thêm dependency OCR nào.
 
 | Nguồn | Kết quả đọc trang công thức của Bishop |
@@ -793,21 +1019,21 @@ trang sách tiếng Anh sang tiếng Việt, dịch sai bét. Prompt OCR vì th�
 **cấm dịch tường minh**; có test khoá lại điều này.
 
 Hệ thống chỉ OCR **đúng những trang đo được là đọc hỏng** (nhiều mã `(cid:)` so với số từ,
-hoặc gần như không có chữ mà lại có ảnh), không quét bừa. *(Mặc định đã đổi thành BẬT — §5.49.)*
+hoặc gần như không có chữ mà lại có ảnh), không quét bừa. *(Mặc định đã đổi thành BẬT — §7.49.)*
 
-### 5.38 Kết quả cuối trên bộ tài liệu thật
+### 7.38 Kết quả cuối trên bộ tài liệu thật
 13 tài liệu, 1221 trang, **5642 chunk**, 29 câu hỏi song ngữ.
 
 > **Đây là đợt đo CŨ, giữ lại để đối chiếu.** Số liệu hiện hành đo trên corpus **26 tài liệu /
 > 9.285 chunk** với `TOP_K=4` và nằm ở [`KET_QUA_DO_DAC.md`](KET_QUA_DO_DAC.md) §4–§5. Hai bảng
 > **không so trực tiếp được** với nhau: khác corpus, khác `TOP_K`, và Recall@K đã đổi ý nghĩa
-> sau khi có mở rộng xuyên trang (§5.65).
+> sau khi có mở rộng xuyên trang (§7.65).
 
-> Số chunk của cùng bộ tài liệu này thay đổi giữa các mục (5909 ở §5.30, 5876 ở §5.33, 5642 ở
+> Số chunk của cùng bộ tài liệu này thay đổi giữa các mục (5909 ở §7.30, 5876 ở §7.33, 5642 ở
 > đây) vì mỗi mục đo ở một thời điểm khác nhau, và chính các thay đổi ở khâu đọc/chia chunk đã
 > làm con số đó đổi. **5642 là con số cuối cùng**, ứng với phiên bản code hiện tại.
 
-> **Đọc kèm §5.46 trước khi diễn giải bất kỳ con số nào.** Chỉ Precision@K, Recall@K và MRR
+> **Đọc kèm §7.46 trước khi diễn giải bất kỳ con số nào.** Chỉ Precision@K, Recall@K và MRR
 > là tất định.
 
 | Tách theo loại tài liệu | Số câu | Recall@K | Faithfulness | Relevance | Citation |
@@ -834,16 +1060,16 @@ Chỉ đo truy xuất (`--nhanh`, tất định): **Recall@K 0.93, MRR 0.98, 24/
 
 1. **Faithfulness nhóm sách tiếng Anh 0.33 → 0.83.** Bản trước ghi 0.33 kèm ghi chú "đây là
    lỗi của thước đo" — đúng, nhưng dừng ở đó là chưa xong việc. Nguyên nhân gốc nằm ở **dòng
-   đầu tiên của luồng Ingestion** (§5.40): pdfplumber nuốt khoảng trắng khi đọc sách LaTeX
+   đầu tiên của luồng Ingestion** (§7.40): pdfplumber nuốt khoảng trắng khi đọc sách LaTeX
    nên giám khảo đối chiếu câu trả lời sạch với ngữ cảnh dính chữ rồi kết luận là "bịa". Sửa
    khâu đọc thì con số tự đúng lên. Bài học: một con số sai có thể có nguyên nhân nằm rất xa
    chỗ nó hiện ra, và "đây là lỗi thước đo" là chẩn đoán ĐÚNG nhưng chưa phải nguyên nhân.
-2. **Citation 0.76 → 0.61 KHÔNG phải hệ thống kém đi** mà là thước đo nghiêm hơn (§5.28). Đo
+2. **Citation 0.76 → 0.61 KHÔNG phải hệ thống kém đi** mà là thước đo nghiêm hơn (§7.28). Đo
    lại cùng lần chạy này theo cách CŨ cho **0.72** — nằm gọn trong dải dao động của chính
-   metric đó (§5.46).
-3. **Faithfulness trung bình suýt bị ghi thành 4.43** — xem §5.48.
+   metric đó (§7.46).
+3. **Faithfulness trung bình suýt bị ghi thành 4.43** — xem §7.48.
 
-### 5.39 Citation accuracy của nhóm biểu mẫu DOCX thấp — và đó là HAI lỗi khác nhau
+### 7.39 Citation accuracy của nhóm biểu mẫu DOCX thấp — và đó là HAI lỗi khác nhau
 Nhóm này Recall@K 1.00 và Faithfulness 1.00 nhưng Citation chỉ 0.63; đọc từng câu thì hai câu
 đạt 1.00 và hai câu tụt hẳn (0.33 và 0.20) — hai nguyên nhân hoàn toàn khác nhau.
 
@@ -854,7 +1080,7 @@ một tầng sống sót**:
 - **Tầng đo** (`_MAU_CAU_LOAI_TRU_NGUON`) — GIỮ. Bộ mẫu cố ý HẸP: câu "Đề tài không thuộc
   lĩnh vực Y sinh mà thuộc Khoa học máy tính theo [2]" vẫn phải được tính (có test cả hai chiều).
 - **Tầng prompt** (cấm model bình luận về đoạn không dùng) — **ĐÃ GỠ**: model 4B hiểu rộng
-  thành "trích dẫn càng ít càng tốt" và bỏ hẳn trích dẫn ở một số câu (§5.46).
+  thành "trích dẫn càng ít càng tốt" và bỏ hẳn trích dẫn ở một số câu (§7.46).
 
 > Rút ra: khi một vấn đề có thể sửa ở **tầng đo** thay vì **tầng prompt**, hãy sửa ở tầng đo —
 > ở đó nó không thể làm hỏng hành vi của model.
@@ -862,14 +1088,14 @@ một tầng sống sót**:
 **Lỗi 2: chunking bảng làm hỏng câu trả lời — và câu trả lời đó SAI thật.** "Đề tài thuộc lĩnh
 vực nào?" được trả lời *"thương mại điện tử"* trong khi biểu mẫu ghi rõ `LĨNH VỰC: Khoa học
 máy tính`. Chỉ Citation accuracy phát hiện ra (Faithfulness vẫn 1.00 vì cụm đó đúng là có
-trong ngữ cảnh — chỉ là ở chỗ khác). Nguyên nhân và cách sửa: §5.41.
+trong ngữ cảnh — chỉ là ở chỗ khác). Nguyên nhân và cách sửa: §7.41.
 
-**Cảnh báo về cách đọc bảng số liệu:** DOCX không có "trang" cố định (§5.13) nên cả file là
+**Cảnh báo về cách đọc bảng số liệu:** DOCX không có "trang" cố định (§7.13) nên cả file là
 MỘT trang; Precision@K/Recall@K so khớp theo `(nguồn, trang)` vì vậy **suy biến** — chỉ cần
 lấy về một chunk bất kỳ là Recall@K = 1.00. Con số 1.00 ở dòng "biểu mẫu có bảng" **không nói
 lên điều gì về chất lượng truy xuất**.
 
-### 5.40 Trang PDF bị dính chữ: đọc lại có điều kiện
+### 7.40 Trang PDF bị dính chữ: đọc lại có điều kiện
 `x_tolerance` mặc định 3 điểm; với font sát nhau (Computer Modern của sách LaTeX) khoảng cách
 thật nhỏ hơn 3 nên **mọi khoảng trắng bị nuốt**: `whichareknownasthenormalequations…`. Hậu quả
 lan ra toàn hệ thống: tokenizer băm chuỗi dính thành mảnh vô nghĩa, BM25 mất hoàn toàn từ
@@ -889,14 +1115,14 @@ nguyên bản gốc.
 Kết quả: **5/45 trang mẫu bị đọc lại, tất cả đều là trang Bishop** (dính 33.1% → 0.0%, đồng
 thời tỉ lệ vỡ từ cũng *giảm* 20.4% → 16.5%). Tám file còn lại không bị đụng tới một trang nào.
 Phép đo chỉ đếm **chữ cái**, không đếm số và ký hiệu toán — nếu không thì mọi trang công thức
-đều bị đọc lại oan (có test chốt). Xem §5.45 về cách chọn ngưỡng.
+đều bị đọc lại oan (có test chốt). Xem §7.45 về cách chọn ngưỡng.
 
-### 5.41 Bảng lớn: cắt theo HÀNG và lặp lại dòng tiêu đề
+### 7.41 Bảng lớn: cắt theo HÀNG và lặp lại dòng tiêu đề
 Bảng vượt cả giới hạn model bị đẩy thẳng vào splitter văn xuôi — mảnh đầu còn dòng tiêu đề,
 **mọi mảnh sau chỉ còn các ô trần**. Trên `DeCuongNCKH.docx`, cả tờ khai là MỘT bảng dài 6.755
 token (gấp 13 lần giới hạn): ô `LĨNH VỰC: Khoa học máy tính` nằm lẻ loi ở chunk 0, còn ~60
 chunk sau là văn xuôi mang dấu `|` lạc lõng và **lặp đi lặp lại cụm "thương mại điện tử"**.
-Model đọc 6 đoạn thì 5 đoạn nói về thương mại điện tử → đi theo số đông và trả lời sai (§5.39).
+Model đọc 6 đoạn thì 5 đoạn nói về thương mại điện tử → đi theo số đông và trả lời sai (§7.39).
 
 **Cách sửa** (`_cat_bang_giu_tieu_de`): gom từng HÀNG vào mảnh hiện tại chừng nào còn vừa giới
 hạn, và **mỗi mảnh đều mở đầu bằng dòng tiêu đề + dòng gạch ngăn** nên mảnh nào cũng là bảng
@@ -904,7 +1130,7 @@ Markdown hợp lệ đọc được độc lập. Hàng nào một mình đã v�
 trả về **dạng văn xuôi**, gắn nhãn `van_ban`. Kèm theo, `_bang_sang_markdown` **bỏ hẳn cột
 rỗng ở mọi hàng** — biểu mẫu Word hay kẻ dư cột để căn lề.
 
-### 5.42 Trả lời theo luồng (streaming) — sửa trải nghiệm, không sửa tốc độ
+### 7.42 Trả lời theo luồng (streaming) — sửa trải nghiệm, không sửa tốc độ
 "Chậm" và "trông như bị treo" là hai vấn đề khác nhau; chỉ vấn đề thứ hai là do kiến trúc
 hiển thị. Streaming **không làm model nhanh hơn một giây nào**:
 
@@ -931,8 +1157,8 @@ Số liệu độ trễ (`do_tre`) hiển thị dưới mỗi câu trả lời, 
 trong log: nó tách bạch hai con số hay bị gộp làm một — tổng thời gian (do model, không rút
 ngắn được) và thời gian tới chữ đầu tiên (do kiến trúc hiển thị, đã rút ngắn được).
 
-### 5.43 Đo độ tin cậy của chính LLM-as-judge
-§5.38 phát hiện giám khảo chấm sai nhờ **đọc tay** — nghĩa là nếu không ai ngồi đọc thì con
+### 7.43 Đo độ tin cậy của chính LLM-as-judge
+§7.38 phát hiện giám khảo chấm sai nhờ **đọc tay** — nghĩa là nếu không ai ngồi đọc thì con
 số sai vẫn nằm im trong báo cáo. Ba việc đã làm để nó tự khai báo:
 
 **(a) Cờ tự nghi ngờ.** Tính thêm một phép đo **tất định** (`do_bam_ngu_canh`): tỉ lệ cụm 4 từ
@@ -965,7 +1191,7 @@ Xử lý: chấm 3 lần lấy **trung vị**. Trung vị chứ không phải tr
 xứng** (không phải "chỉ hỏi lại khi điểm thấp") vì hỏi lại một chiều sẽ đẩy điểm lên cao một
 cách có hệ thống. Chi phí: +2 lượt LLM mỗi câu (~+10 phút cho bộ 29 câu).
 
-### 5.44 IndexFlatIP chịu được tới bao nhiêu chunk — đo, không ước
+### 7.44 IndexFlatIP chịu được tới bao nhiêu chunk — đo, không ước
 Câu hỏi đúng của người phản biện không phải "có mở rộng được không" mà là **"đến bao nhiêu
 chunk thì phải đổi?"**. `do_quy_mo_index.py` đo với `k=60` (đúng số ứng viên hệ thống thật lấy
 về) và **đo từng câu một** (đo cả lô rồi chia sẽ cho con số đẹp hơn thực tế vài lần vì FAISS
@@ -991,8 +1217,8 @@ recall 0.17, một con số không nói gì về hành vi thật.
 - Đổi index thì **bắt buộc** chạy lại `run_evaluation.py`: đoạn bỏ sót hoàn toàn có thể là
   đoạn chứa câu trả lời. Nhanh hơn mà trả lời sai thì không phải cải tiến.
 
-### 5.45 Chống "chỉnh cho vừa bộ tài liệu test"
-Cơ chế ở §5.40 và §5.41 đều được phát hiện nhờ **một** tài liệu cụ thể — cách phát hiện lỗi
+### 7.45 Chống "chỉnh cho vừa bộ tài liệu test"
+Cơ chế ở §7.40 và §7.41 đều được phát hiện nhờ **một** tài liệu cụ thể — cách phát hiện lỗi
 tốt, nhưng cũng là cách sinh ra lỗi mới. Bốn việc đã làm:
 
 **(a) Thay hằng số bằng phép dò có điều kiện chấp nhận.** Bản đầu chốt cứng `x_tolerance=1.5`
@@ -1025,7 +1251,7 @@ có tiêu đề dài hơn cả ngân sách token, ô chứa nguyên một bài v
 nội dung** và **không sinh chunk vượt giới hạn model**. Chính bộ test này phát hiện hai lỗi mà
 tài liệu thật không chạm tới.
 
-### 5.46 Cả quy trình đánh giá đang so sánh hai lần rút thăm
+### 7.46 Cả quy trình đánh giá đang so sánh hai lần rút thăm
 Phát hiện quan trọng nhất của vòng cải tiến này. Hỏi cùng một câu, cùng index, cùng prompt,
 4 lần liên tiếp, ghi lại số `[n]` mà câu trả lời gắn vào:
 
@@ -1035,7 +1261,7 @@ Nhà nước có những đặc điểm gì?        -   -      -   1        1/4 
 Vi phạm pháp luật gồm dấu hiệu nào?   -   135    -   -        1/4
 ```
 
-Ghép với §5.43 (giám khảo chấm cùng một ca 8 lần cho `[0,1,1,1,1,1,1,1]`):
+Ghép với §7.43 (giám khảo chấm cùng một ca 8 lần cho `[0,1,1,1,1,1,1,1]`):
 
 > Cả hai đầu — **hệ thống bị đo** và **thước đo** — đều không tất định. Một dòng "Citation
 > 0.76 → 0.67" giữa hai lần chạy đơn lẻ **không phân biệt được cải tiến thật với dao động**.
@@ -1055,7 +1281,7 @@ hạn thay vì giả vờ không có**:
 | Faithfulness, Answer Relevance | Đã bớt dao động (trung vị 3 lần) | Chênh lệch nhỏ vẫn cần dè dặt |
 | **Citation accuracy** | **Không** — dao động mạnh nhất | Chênh dưới ~0.1 **không nên diễn giải là gì cả** |
 
-**Một hệ quả về cách sửa prompt.** Quy tắc cấm model bình luận về đoạn không dùng (§5.39) đạt
+**Một hệ quả về cách sửa prompt.** Quy tắc cấm model bình luận về đoạn không dùng (§7.39) đạt
 đúng mục tiêu đề ra, nhưng model 4B hiểu rộng thành "trích dẫn càng ít càng tốt" và **bỏ hẳn
 trích dẫn ở một số câu**. Đo lại đúng ba câu đó, 4 lần mỗi câu: có quy tắc 4/12 (33%) → đã gỡ
 **6/12 (50%)**. Với n=12 thì chênh lệch này chưa đủ kết luận, và quyết định gỡ không dựa vào
@@ -1065,17 +1291,17 @@ năng kiểm chứng) lấy một câu trả lời gọn gàng hơn.
 > Bài học: với model nhỏ, **mỗi điều cấm thêm vào prompt đều có nguy cơ dập luôn hành vi mình
 > đang muốn giữ**. Khi một vấn đề có thể sửa ở tầng đo thay vì tầng prompt, hãy sửa ở tầng đo.
 
-### 5.47 Bố cục kiểu ứng dụng chat — và chỗ cố ý làm khác
+### 7.47 Bố cục kiểu ứng dụng chat — và chỗ cố ý làm khác
 Bố cục hai cột cạnh nhau khiến cột chat — thứ người dùng nhìn 95% thời gian — chỉ còn 3/4 màn
 hình. Bố cục mới: **thanh bên + một cột đọc căn giữa + ô nhập ghim đáy**, vì ba lý do dùng
-được: thanh bên **thu gọn được** (thay hoàn toàn nút toàn màn hình tự làm, §5.16); cột đọc hẹp
+được: thanh bên **thu gọn được** (thay hoàn toàn nút toàn màn hình tự làm, §7.16); cột đọc hẹp
 (~48rem) là có chủ đích vì dòng chữ dài quá ~80 ký tự khiến mắt mỏi khi nhảy dòng; và
 `st.chat_input` **phải nằm ở tầng ngoài cùng** của script mới ghim được đáy — chính ràng buộc
 kỹ thuật này khiến bố cục hai cột không bao giờ cho được cảm giác của một app chat thật.
 
 **Chỗ cố ý làm KHÁC ChatGPT**, vì đây là hệ thống RAG chứ không phải chatbot:
 - **Thanh bên là NGUỒN TÀI LIỆU, không phải danh sách hội thoại cũ** — lịch sử vốn không lưu
-  qua nhiều phiên (§5.9) nên danh sách hội thoại sẽ luôn rỗng; thứ cần quản lý là *tài liệu
+  qua nhiều phiên (§7.9) nên danh sách hội thoại sẽ luôn rỗng; thứ cần quản lý là *tài liệu
   nào đang được dùng để trả lời*, và mỗi checkbox đổi trực tiếp phạm vi truy xuất.
 - **Dưới mỗi câu trả lời có nguồn + số liệu độ trễ** — không có trong app chat thường, và
   chúng là toàn bộ lý do tồn tại của hệ thống.
@@ -1090,7 +1316,7 @@ LLM xảy ra ở lần chạy kế tiếp — lúc mọi widget đã render ở 
 vào gọi thẳng LLM thì một cú bấm bất kỳ trong lúc chờ sẽ khiến Streamlit huỷ ngang lần chạy
 đang dở và câu trả lời mất trắng — bug đã gặp thực tế.
 
-### 5.48 Giám khảo trả điểm ngoài thang — và vì sao JSON Schema không cứu được
+### 7.48 Giám khảo trả điểm ngoài thang — và vì sao JSON Schema không cứu được
 Bảng in ra `Faithfulness trung bình = 4.43` (Faithfulness là tỉ lệ, luôn trong [0,1]). Truy
 vào từng câu thấy `100.00` và `5.00` — giám khảo đổi sang thang **phần trăm** và thang **1–5**;
 cả hai câu trả lời đều đúng, model chỉ hiểu sai đơn vị. 27 câu còn lại tổng tối đa là 27, riêng
@@ -1110,7 +1336,7 @@ liệu đánh giá. Thay vào đó mẫu lạc thang bị **loại hẳn** khỏ
 vốn đã chấm 3 lần nên còn đủ mẫu tốt để quyết). Chỉ khi **cả 3 lần đều lạc thang** mới lùi về
 kẹp, kèm log mức `error` — đó là dấu hiệu đã đến lúc đổi `JUDGE_MODEL`.
 
-### 5.49 Tài liệu chưa từng thấy: bốn lỗ hổng chỉ lộ ra khi người dùng nạp tài liệu thật
+### 7.49 Tài liệu chưa từng thấy: bốn lỗ hổng chỉ lộ ra khi người dùng nạp tài liệu thật
 Người dùng nạp một giáo trình 383 trang; index build "thành công" với 379 chunk, không lỗi nào
 được ném ra. Nhưng mỗi chunk có nội dung đúng bằng chuỗi `[HÌNH]` — 6 ký tự, **giống hệt nhau ở
 cả 379 chunk**. Toàn bộ "kho tri thức" của cuốn sách là 379 mẩu rỗng. Nguyên nhân: **PDF scan**
@@ -1120,14 +1346,14 @@ hình minh hoạ · không ai báo tài liệu không đọc được (số chun
 
 > Khiếm khuyết đầu là bài học đắt nhất: **một mặc định được chọn dựa trên một bộ tài liệu cụ
 > thể chính là định nghĩa của việc chỉnh cho vừa bộ test.** Lập luận "chi phí lớn, lợi ích hẹp"
-> (§5.37) đúng với bộ tài liệu lúc đó và sai hoàn toàn với tài liệu kế tiếp.
+> (§7.37) đúng với bộ tài liệu lúc đó và sai hoàn toàn với tài liệu kế tiếp.
 
 Nay OCR **mặc định BẬT**, và điều đó an toàn chứ không phải đánh đổi: nó chỉ chạy cho trang ĐO
 ĐƯỢC là không đọc được, nên tài liệu có lớp text bình thường tốn **đúng 0 chi phí**. Đo trên
 chính cuốn sách đó: OCR phục hồi **2.000–2.600 ký tự mỗi trang**, đọc đúng cả số hiệu văn bản
 (*"Nghị định số 88/2006/NĐ-CP"*), ~8 giây/trang.
 
-### 5.50 Ba lần đặt ngưỡng mà không đo — và cách sửa cuối cùng
+### 7.50 Ba lần đặt ngưỡng mà không đo — và cách sửa cuối cùng
 - **Lần 1** — "ảnh chụp cả trang phủ ≥ 85% diện tích": trượt ngay trên tài liệu đầu tiên (ảnh
   scan thật chỉ phủ **81.2%** vì sách có lề ~50pt).
 - **Lần 2** — hạ xuống 60% kèm "trang có ít chữ": bắt được sách scan nhưng **nuốt mất 5 ảnh**
@@ -1141,7 +1367,7 @@ trang chữ ⟶ **hỏi OCR** (ảnh trang sách cho ra cả nghìn ký tự, �
 quyết định phải đi SAU phép đo); rãnh giữa cột ⟶ **đòi có chữ ở cả hai bên** và chỉ xét bên
 trong khối chữ. Đo lại sau khi đổi tín hiệu: **0 ảnh bị nuốt nhầm, 0 trang bị nhận nhầm**.
 
-### 5.51 Bố cục nhiều cột: hỏng ngay từ dòng đầu tiên của luồng đọc
+### 7.51 Bố cục nhiều cột: hỏng ngay từ dòng đầu tiên của luồng đọc
 pdfplumber đọc theo **dòng ngang chạy suốt bề ngang trang** nên với trang 2 cột nó nối câu cột
 trái thẳng vào câu cột phải — hai điều luật khác nhau dính thành một câu, **mọi chunk sinh ra
 từ trang đó đều vô nghĩa** và không có dấu hiệu nào để nhận ra.
@@ -1149,9 +1375,9 @@ từ trang đó đều vô nghĩa** và không có dấu hiệu nào để nhậ
 **Cách sửa** (`_cac_cot_cua_trang` + `_text_theo_cot`): chiếu mọi từ lên trục ngang, tìm rãnh
 trống dọc **nằm trong khối chữ** và có **lượng chữ đáng kể ở cả hai bên**, đọc từng cột rồi nối
 theo thứ tự trái → phải. Dấu hiệu hình học nên không phụ thuộc ngôn ngữ. Chỉ dò khi trang
-**không có bảng** (bảng nhiều cột cũng tạo rãnh dọc, và bảng vốn đã được tách vùng riêng, §5.26).
+**không có bảng** (bảng nhiều cột cũng tạo rãnh dọc, và bảng vốn đã được tách vùng riêng, §7.26).
 
-### 5.52 Text box trong DOCX: nội dung biến mất không dấu vết
+### 7.52 Text box trong DOCX: nội dung biến mất không dấu vết
 `Paragraph.text` chỉ gom text của các run trực tiếp; nội dung text box nằm sâu trong
 `<w:drawing>` → `<wps:txbx>` → `<w:txbxContent>` nên trả về chuỗi rỗng. Đáng sửa vì **sơ đồ,
 khung "Lưu ý", trích dẫn nổi bật, chú thích bên lề** đều hay đặt trong text box — thường là chỗ
@@ -1159,14 +1385,14 @@ cô đọng nhất của trang. Dò bằng đường dẫn XML `.//w:txbxContent
 riêng của `<wps:txbx>`, vì text box do các phiên bản Word khác nhau tạo ra nằm dưới nhiều
 namespace (wps, `v:textbox` của VML cũ) nhưng tất cả đều chứa `<w:txbxContent>`.
 
-### 5.53 Một file hỏng không được làm sập cả lần build
+### 7.53 Một file hỏng không được làm sập cả lần build
 Với hệ thống mà người dùng **tự nạp tài liệu bất kỳ vào**, gặp file đọc không được là chuyện
 bình thường chứ không phải ngoại lệ. Nay mỗi file được đọc trong lưới đỡ riêng: file hỏng bị
 bỏ qua, tên file và loại lỗi ghi rõ, cuối lần build có dòng "N/M tài liệu KHÔNG vào được
 index: …". Bắt `Exception` rộng là có chủ đích (các thư viện ném rất nhiều loại lỗi khác nhau
 tuỳ file hỏng kiểu gì) — điều quan trọng là **không nuốt lỗi**.
 
-### 5.54 Trình bày phỏng đoán như thể là nguồn — lỗi trích dẫn nguy hiểm nhất
+### 7.54 Trình bày phỏng đoán như thể là nguồn — lỗi trích dẫn nguy hiểm nhất
 Khi model không gắn số `[n]` nào, bản trước lặng lẽ lấy đoạn điểm cao nhất và hiển thị dưới
 nhãn **"📎 Nguồn:"**. Người đọc tin rằng câu trả lời dựa trên trang đó, trong khi **không ai
 biết nó dựa trên gì** — kể cả hệ thống. Với một hệ thống mà giá trị cốt lõi là *kiểm chứng
@@ -1174,11 +1400,11 @@ biết nó dựa trên gì** — kể cả hệ thống. Với một hệ thốn
 phải tự tra; có một nguồn sai thì họ yên tâm nhầm.
 
 Không phải trường hợp hiếm: **4/29 câu trả lời thật không gắn số nào**; đo lặp lại cùng một câu
-4 lần thì tỉ lệ tuân thủ chỉ **50%** (§5.46). Nay vẫn hiển thị đoạn liên quan nhất nhưng kèm cờ
+4 lần thì tỉ lệ tuân thủ chỉ **50%** (§7.46). Nay vẫn hiển thị đoạn liên quan nhất nhưng kèm cờ
 `la_suy_doan` để giao diện nói thật: *"Câu trả lời không tự dẫn nguồn — đoạn dưới là đoạn liên
 quan nhất do hệ thống chọn, KHÔNG chắc là căn cứ đã dùng"*.
 
-### 5.55 Chỉ báo "bám nguồn" ở tầng chạy thật — và vì sao chỉ hiện khi CAO
+### 7.55 Chỉ báo "bám nguồn" ở tầng chạy thật — và vì sao chỉ hiện khi CAO
 `do_bam_ngu_canh()` tất định, không gọi model, chạy trong mili giây — nên không có lý do gì để
 người dùng thật không được thấy nó: *"✓ 78% nội dung câu trả lời trùng nguyên văn với đoạn
 trích đã dẫn"*.
@@ -1194,13 +1420,13 @@ Hàm sống ở `rag/citation.py` và `evaluation/metrics.py` import lại, **kh
 bản sẽ trôi khỏi nhau và khi đó con số trong báo cáo nói về một thứ khác với con số người dùng
 nhìn thấy. Có test khoá: `ban_runtime is ban_danh_gia`.
 
-### 5.56 Kết luận phải viết SAU lập luận, không phải trước
+### 7.56 Kết luận phải viết SAU lập luận, không phải trước
 Hỏi *"Tôi nhớ là doanh nghiệp tư nhân có tư cách pháp nhân, đúng không?"*, hệ thống trả lời:
 
 > **ĐÚNG** … Giải thích: doanh nghiệp tư nhân **không có tư cách pháp nhân** …
 
 **Phán quyết mâu thuẫn với chính lập luận ngay bên dưới nó** — với tính năng chống a dua
-(§5.22) thì đây là hỏng đúng chỗ quan trọng nhất, vì người đọc lướt nhìn chữ "ĐÚNG" là tin ngay.
+(§7.22) thì đây là hỏng đúng chỗ quan trọng nhất, vì người đọc lướt nhìn chữ "ĐÚNG" là tin ngay.
 Nguyên nhân là **thứ tự bố cục bắt buộc** trong system prompt: `KẾT LUẬN` → `Căn cứ` →
 `Giải thích` bắt model chốt phán quyết khi chưa đối chiếu gì, rồi lập luận đúng nhưng không quay
 lại sửa nhãn đã lỡ viết.
@@ -1208,9 +1434,9 @@ lại sửa nhãn đã lỡ viết.
 Sửa: đảo thành `Căn cứ` → `Đối chiếu` → `KẾT LUẬN`, kèm lý do ngay trong prompt và một bước tự
 kiểm. Đo lại 3 lần (vì hành vi model không tất định): **3/3 lần kết luận SAI** (đúng), đều kèm
 số đoạn trích. Nhãn phán quyết model tự đặt tên khác nhau giữa các lần — **cố ý không siết
-prompt thêm để ép nhãn**, theo đúng bài học §5.46.
+prompt thêm để ép nhãn**, theo đúng bài học §7.46.
 
-### 5.57 Ngưỡng từ chối: kiểm chứng nó KHÔNG bị overfitting
+### 7.57 Ngưỡng từ chối: kiểm chứng nó KHÔNG bị overfitting
 `NGUONG_DIEM_RERANK_TOI_THIEU = 0.001` là tham số dễ overfitting nhất trong hệ thống: điểm
 cross-encoder không được hiệu chuẩn sẵn nên phân bố hoàn toàn có thể dịch chuyển khi đổi miền
 tài liệu. Kiểm trên miền **hoàn toàn mới** (luật kinh tế Việt Nam):
@@ -1224,7 +1450,7 @@ Hai nhóm cách nhau **~37.000 lần** và ngưỡng 0.001 nằm gọn ở giữ
 tính của **model cross-encoder**, không phải của corpus. Một kết quả âm tính đáng ghi lại:
 không phải hằng số nào cũng là overfitting, và cách duy nhất để biết là đi đo trên miền mới.
 
-### 5.58 Truy xuất mù trước lịch sử hội thoại — và vì sao cách chữa TẤT ĐỊNH thắng
+### 7.58 Truy xuất mù trước lịch sử hội thoại — và vì sao cách chữa TẤT ĐỊNH thắng
 `truy_xuat()` chỉ encode đúng chuỗi câu hỏi hiện tại. Với câu NỐI TIẾP:
 
     Người dùng: "Vi phạm pháp luật gồm những dấu hiệu nào?"
@@ -1233,10 +1459,10 @@ không phải hằng số nào cũng là overfitting, và cách duy nhất để
 
 câu cuối không chứa chủ đề nào. Vector của nó không trỏ tới vùng nào, BM25 không có từ khoá
 để bám, và cross-encoder chấm mọi đoạn về gần 0 — mà điểm rerank còn là **cơ chế từ chối**
-(§5.29), nên câu hợp lệ này còn có nguy cơ **bị từ chối oan**. Lịch sử chat có hiện trên màn
+(§7.29), nên câu hợp lệ này còn có nguy cơ **bị từ chối oan**. Lịch sử chat có hiện trên màn
 hình nhưng nằm ở tầng giao diện, chưa bao giờ đi vào truy xuất.
 
-Phải tách bạch với §5.9: "không lưu lịch sử qua nhiều phiên" là một quyết định PHẠM VI. Còn
+Phải tách bạch với §7.9: "không lưu lịch sử qua nhiều phiên" là một quyết định PHẠM VI. Còn
 đây là chuyện xảy ra **ngay trong một phiên**, tức một khiếm khuyết thật. Hai chuyện này rất
 hay bị gộp làm một khi đọc README.
 
@@ -1244,7 +1470,7 @@ hay bị gộp làm một khi đọc README.
 
 | Model | Kết quả trên 7 ca |
 |---|---|
-| `qwen3:4b` | **0/7**. Luôn sinh chuỗi suy luận dài trước khi trả lời (§5.23): `num_predict=200` bị tiêu hết lúc "nghĩ", `content` về RỖNG. Nâng lên 1500 vẫn rỗng (thinking đã 5891 ký tự). Đủ chỗ thì cần ~3000 token ≈ **+30 giây mỗi câu nối tiếp**. |
+| `qwen3:4b` | **0/7**. Luôn sinh chuỗi suy luận dài trước khi trả lời (§7.23): `num_predict=200` bị tiêu hết lúc "nghĩ", `content` về RỖNG. Nâng lên 1500 vẫn rỗng (thinking đã 5891 ký tự). Đủ chỗ thì cần ~3000 token ≈ **+30 giây mỗi câu nối tiếp**. |
 | `qwen2.5vl:3b` | Nhanh (không có chế độ suy luận) nhưng sai: một ca chép y nguyên câu gốc, một ca trả về đúng câu hỏi CŨ — mất hẳn phần "thứ hai". |
 
 **Cách thứ hai — contextualization — làm đúng việc cần làm mà không cần model nào:** ghép các
@@ -1254,7 +1480,7 @@ chủ đề để vector trỏ đúng vùng.
 
 **Đo trên index thật** (bài báo FCN, 458 chunk). Lấy chính kết quả truy xuất của câu hỏi ĐẦY
 ĐỦ làm chuẩn vàng — nhờ vậy phép đo chạy được trên bất kỳ corpus nào mà không cần gán nhãn
-tay, và nó **tất định** nên chênh lệch là chênh lệch thật chứ không phải dao động (§5.46):
+tay, và nó **tất định** nên chênh lệch là chênh lệch thật chứ không phải dao động (§7.46):
 
 | Câu nối tiếp | Trùng chuẩn vàng | Điểm rerank |
 |---|---|---|
@@ -1270,14 +1496,14 @@ lời**, chứ không chỉ là "lấy nhầm đoạn".
 
 **Ba lý do khiến đây là lựa chọn đúng, không phải lựa chọn tạm:**
 
-1. **TẤT ĐỊNH.** §5.46 kết luận chỉ Precision@K/Recall@K/MRR so sánh được giữa hai lần chạy.
+1. **TẤT ĐỊNH.** §7.46 kết luận chỉ Precision@K/Recall@K/MRR so sánh được giữa hai lần chạy.
    Một bước đứng chắn trước toàn bộ truy xuất mà lại gọi LLM thì thêm một nguồn dao động nữa
    vào đúng chỗ tệ nhất.
-2. **GẦN NHƯ MIỄN PHÍ.** Một lần encode (~30ms), không đụng tới độ trễ §5.42 đã tốn công kéo xuống.
+2. **GẦN NHƯ MIỄN PHÍ.** Một lần encode (~30ms), không đụng tới độ trễ §7.42 đã tốn công kéo xuống.
 3. **AN TOÀN THEO CẤU TRÚC.** Câu gốc vẫn là một nhánh riêng trong RRF, nên xấu nhất là "thứ
-   hạng nhiễu đi", không phải "mất kết quả đúng" — nguyên tắc của §5.45(a).
+   hạng nhiễu đi", không phải "mất kết quả đúng" — nguyên tắc của §7.45(a).
 
-Đường LLM được **giữ lại nhưng mặc định TẮT**, đúng tiền lệ §5.30 với BM25: kết quả âm tính
+Đường LLM được **giữ lại nhưng mặc định TẮT**, đúng tiền lệ §7.30 với BM25: kết quả âm tính
 trên model này không có nghĩa âm tính với model khác.
 
 **Ba chi tiết nhỏ quyết định chất lượng:**
@@ -1292,19 +1518,19 @@ trên model này không có nghĩa âm tính với model khác.
   thì trích dẫn mất sạch ý nghĩa.
 
 **Tầng nhận diện: 10/10 trên bộ ca có nhãn**, và hướng ưu tiên ĐẢO NGƯỢC so với
-`la_cau_hoi_kiem_chung()` (§5.22) — ở đó bỏ sót thì rẻ, ở đây bỏ sót thì truy xuất trượt hẳn.
+`la_cau_hoi_kiem_chung()` (§7.22) — ở đó bỏ sót thì rẻ, ở đây bỏ sót thì truy xuất trượt hẳn.
 Một luật dự phòng theo ĐỘ DÀI CÂU đã bị bộ ca có nhãn bác bỏ ngay và phải gỡ bỏ: tiếng Việt
 viết rời từng âm tiết nên câu hỏi hoàn chỉnh thường xuyên chỉ có 6-8 "từ" ("Nhà nước có những
-đặc điểm gì?"), độ dài không mang thông tin gì. Đúng bài học §5.50: đổi tín hiệu, đừng chỉnh
+đặc điểm gì?"), độ dài không mang thông tin gì. Đúng bài học §7.50: đổi tín hiệu, đừng chỉnh
 ngưỡng.
 
 **Giao diện phải NÓI RA việc đã ghép ngữ cảnh** (*"Hiểu đây là câu hỏi nối tiếp, nên đã tra
 kèm ngữ cảnh: …"*). Đây là một phỏng đoán của hệ thống về ý người dùng, và trình bày phỏng
-đoán như thể là sự thật đúng là lỗi §5.54 đã phải sửa một lần rồi. Hiện ra thì người dùng
+đoán như thể là sự thật đúng là lỗi §7.54 đã phải sửa một lần rồi. Hiện ra thì người dùng
 thấy hệ thống nối nhầm và gõ lại câu đầy đủ; giấu đi thì họ nhận một câu trả lời
 đúng-nhưng-cho-câu-hỏi-khác mà không hiểu vì sao.
 
-### 5.59 Đối chiếu CHÉO các nguồn — và `think=False` được minh oan đúng một chỗ
+### 7.59 Đối chiếu CHÉO các nguồn — và `think=False` được minh oan đúng một chỗ
 Toàn bộ phần còn lại của hệ thống xử lý mỗi đoạn trích ĐỘC LẬP: xếp hạng độc lập, đặt cạnh
 nhau trong prompt, rồi để LLM viết một câu trả lời gộp. Không bước nào hỏi "các đoạn này có
 nói ngược nhau không".
@@ -1319,15 +1545,15 @@ người đọc mất đúng thông tin quan trọng nhất: **"hai nguồn củ
 với `TOP_K=4`, 15 cặp nếu ai đó nâng lại lên 6 — tức chừng ấy lượt gọi model sau MỖI câu trả lời. Nên tầng 1 lọc tất định (khác nguồn + cùng chủ đề theo
 cosine + có dấu hiệu bất đồng bề mặt), tầng 2 chỉ chấm vài cặp sống sót. Đại đa số lượt hỏi
 không có cặp nào qua tầng 1 → tốn đúng 0 lượt LLM. Bước này chạy **sau khi câu trả lời đã
-hiện xong** nên không đụng tới thời gian chờ chữ đầu tiên (§5.42).
+hiện xong** nên không đụng tới thời gian chờ chữ đầu tiên (§7.42).
 
 **Số viết bằng chữ là chỗ suýt làm cả bộ lọc vô dụng.** Bản đầu chỉ bắt chữ số bằng regex —
-và ca mẫu của chính đồ án, *"Nhà nước có NĂM đặc điểm"* đối lại *"có BỐN đặc điểm"* (§5.22),
+và ca mẫu của chính đồ án, *"Nhà nước có NĂM đặc điểm"* đối lại *"có BỐN đặc điểm"* (§7.22),
 không có lấy một chữ số nào. Test bắt được đúng chỗ này. Nay số viết bằng chữ được quy về
 cùng dạng với chữ số; cố ý loại "một" (mạo từ) và "tư" ("tư nhân"/"tư cách").
 
-**`think=False` KÈM `format=<schema>` — và vì sao nó không mâu thuẫn với §5.23.**
-§5.23 kết luận "tuyệt đối không truyền `think=False`", và kết luận đó vẫn đúng **với đầu ra
+**`think=False` KÈM `format=<schema>` — và vì sao nó không mâu thuẫn với §7.23.**
+§7.23 kết luận "tuyệt đối không truyền `think=False`", và kết luận đó vẫn đúng **với đầu ra
 tự do**: lúc ấy nó không tắt suy luận mà chỉ tắt việc TÁCH suy luận ra, nên cả chuỗi "Okay,
 let me figure out..." đổ thẳng vào `content`. Nhưng khi có `format`, Ollama ép sinh theo một
 grammar JSON — model **không thể** sinh văn xuôi tự do nữa vì văn xuôi không phải JSON hợp lệ.
@@ -1341,9 +1567,9 @@ Chính grammar trở thành thứ chặn suy luận.
 Không có nó thì tính năng **không chạy**: bản đầu đo được 0/4 ca mâu thuẫn thật, vì
 `num_predict` bị suy luận ăn hết và `content` về rỗng ở mọi ca. Đây cũng là gợi ý đáng thử
 cho `evaluation/metrics.py` (LLM-as-judge cũng dùng `format=` mà không truyền `think=False`) —
-nhưng chưa đổi, vì làm vậy sẽ khiến số liệu §5.38 không còn so được với bản đã báo cáo.
+nhưng chưa đổi, vì làm vậy sẽ khiến số liệu §7.38 không còn so được với bản đã báo cáo.
 
-**Thứ tự field trong JSON Schema tái tạo lại đúng lỗi §5.56.** Bản đầu đặt `co_mau_thuan`
+**Thứ tự field trong JSON Schema tái tạo lại đúng lỗi §7.56.** Bản đầu đặt `co_mau_thuan`
 lên trước. JSON sinh tuần tự theo grammar, nên model phải CHỐT PHÁN QUYẾT trước khi viết được
 một chữ lập luận nào. Kết quả đo được trên ca "hai điều kiện học bổng bổ sung cho nhau": model
 chấm `co_mau_thuan=true, muc_do=1.0` rồi tự viết trong phần giải thích rằng *"hai đoạn không
@@ -1369,14 +1595,14 @@ nhau thì lấy mức **thấp nhất**, không lấy trung bình.
 Ba trên bảy ca là ca **phải im lặng**, và đó mới là phần khó: bắt mâu thuẫn hiển nhiên thì
 dễ, khó là không báo động trên hai đoạn chỉ bổ sung cho nhau. Một ca ("năm đặc điểm" vs "bốn
 đặc điểm") đã từng dao động giữa các lần chạy ở bản trước khi sửa prompt — đúng mức dao động
-§5.43 đã đo, và cơ chế đồng thuận đẩy dao động đó về phía im lặng chứ không phải phía báo động.
+§7.43 đã đo, và cơ chế đồng thuận đẩy dao động đó về phía im lặng chứ không phải phía báo động.
 
 Giao diện cố ý **không kết luận nguồn nào đúng**: hệ thống không có căn cứ nào để phân xử
 (không biết tài liệu nào mới hơn, môn nào ưu tiên bản nào). Việc của nó là chỉ ra chỗ xung đột
 kèm đủ toạ độ (tên file + trang) để người đọc tự mở ra đối chiếu.
 
 
-### 5.60 `num_ctx` — cửa sổ ngữ cảnh 4096 token mà không ai khai báo
+### 7.60 `num_ctx` — cửa sổ ngữ cảnh 4096 token mà không ai khai báo
 
 Đây là bug nghiêm trọng nhất từng có trong hệ thống, và điều đáng ghi lại nhất không phải
 cách sửa (một dòng) mà là **vì sao nó sống sót lâu đến thế**: nó không phải lỗi code, nó là
@@ -1426,7 +1652,7 @@ mọi dòng trong bảng đều phải dừng vì `length`.
 
 **Một bug, hai triệu chứng trông như hai lỗi khác nhau — đó là lý do nó bị chẩn đoán sai.**
 
-*(a) Câu trả lời ngắn cụt.* qwen3:4b luôn sinh thinking dài (§5.23 đo được 5891 ký tự cho
+*(a) Câu trả lời ngắn cụt.* qwen3:4b luôn sinh thinking dài (§7.23 đo được 5891 ký tự cho
 một tác vụ nhỏ). Khi prompt đã ăn hết cửa sổ, phần còn lại cho thinking + answer gần bằng 0.
 Chính hệ thống đã ghi lại bằng chứng nhưng gán sai nguyên nhân — comment cũ ở
 `_goi_llm_theo_luong` viết *"đã gặp khi model bị cắt ngang vì chạm num_predict"*. Không phải
@@ -1469,7 +1695,7 @@ thể mất 10-20 giây). Nếu quá chậm thì hạ `TOP_K` hoặc `NGAN_SACH_
 
 ---
 
-### 5.61 Ngưỡng tuyệt đối là ngưỡng chỉ đúng trên corpus đã dùng để đo nó
+### 7.61 Ngưỡng tuyệt đối là ngưỡng chỉ đúng trên corpus đã dùng để đo nó
 
 `NGUONG_DIEM_TOI_THIEU = 0.70` được hiệu chỉnh trên chính corpus của đồ án. Vấn đề: **cosine
 của E5 không phải thang đo tuyệt đối.** Giá trị của nó trôi theo domain, ngôn ngữ, độ dài
@@ -1478,11 +1704,11 @@ văn xuôi ngay trong cùng một corpus; một corpus mới nhiều công thứ
 bố xuống, và ngưỡng cố định bắt đầu **cắt oan**.
 
 Hậu quả cụ thể: 4/6 đoạn rớt ngưỡng → ngữ cảnh còn 2 đoạn → không còn gì để tổng hợp → câu
-trả lời ngắn. Triệu chứng **trùng khít** với bug `num_ctx` (§5.60) nhưng là nguyên nhân khác,
+trả lời ngắn. Triệu chứng **trùng khít** với bug `num_ctx` (§7.60) nhưng là nguyên nhân khác,
 nên phải sửa cả hai chứ không được chọn một rồi tuyên bố xong.
 
 Có một vấn đề kiến trúc sâu hơn: **rerank quyết định thứ tự, cosine quyết định sống chết.**
-`diem_similarity` giữ nguyên là cosine (§5.24 giải thích vì sao không thay bằng điểm rerank),
+`diem_similarity` giữ nguyên là cosine (§7.24 giải thích vì sao không thay bằng điểm rerank),
 nên một đoạn được cross-encoder xếp hạng 1 mà cosine 0.68 vẫn bị vứt. Hai thang đo khác nhau
 cùng ra quyết định trong một pipeline — hệ thống đã tránh việc trộn chúng vào cùng một
 **trường**, nhưng chưa tránh việc chúng ra quyết định **mâu thuẫn nhau**.
@@ -1518,7 +1744,7 @@ một giả định sai vẫn đáng giữ, miễn là nói rõ nó chưa đư�
 
 ---
 
-### 5.62 Ba giả định "đúng cho slide" âm thầm sai cho PDF văn xuôi
+### 7.62 Ba giả định "đúng cho slide" âm thầm sai cho PDF văn xuôi
 
 Ba cơ chế trong luồng truy xuất được thiết kế trên corpus nhiều slide, và cả ba đều mang một
 giả định ngầm không còn đúng khi corpus đổi sang PDF văn bản chảy liên tục.
@@ -1532,7 +1758,7 @@ mảng của trang rồi dừng. Đúng cái pattern "chỉ lộ trên tài li�
 Nay phạm vi mở rộng là toàn bộ tài liệu theo thứ tự đọc, với hai chốt chặn: ngân sách ký tự
 (như cũ) và `SO_TRANG_TOI_DA_MO_RONG=1` — chốt thứ hai giữ cho slide thưa chữ không hút thêm
 2–3 slide xung quanh cho đầy ngân sách, tức không tái tạo lại lỗi "ngữ cảnh loãng" mà việc bỏ
-cách gộp-nguyên-trang đã sửa (§5.11). Trích dẫn vẫn ghi **trang của chunk neo**; các trang đi
+cách gộp-nguyên-trang đã sửa (§7.11). Trích dẫn vẫn ghi **trang của chunk neo**; các trang đi
 qua được trả kèm ở `cac_trang` để đo được tần suất mở rộng xuyên trang thật sự xảy ra.
 
 Chi tiết kỹ thuật đáng ghi: thứ tự đọc xuyên trang suy ra từ `(trang, vi_tri)` — **hai trường
@@ -1561,7 +1787,7 @@ Nên hướng đúng là **tách vai trò**, không phải chỉnh trọng số:
 
 - BM25 chỉ **bơm ứng viên** vào tập đưa đi rerank (recall), với điểm RRF **bằng 0** nên tự nó
   không đẩy được thứ hạng của bất cứ gì.
-- Cross-encoder — vốn đã đo là phân biệt tốt gấp ~60.000 lần cosine (§5.8) — quyết định thứ
+- Cross-encoder — vốn đã đo là phân biệt tốt gấp ~60.000 lần cosine (§7.8) — quyết định thứ
   hạng cuối. Đoạn cứu hộ thật sự liên quan sẽ được nó đẩy lên; không liên quan thì nằm yên.
 
 Một chi tiết dễ làm cả cơ chế thành vô nghĩa: điểm RRF 0 đẩy các đoạn cứu hộ xuống **cuối**
@@ -1570,7 +1796,7 @@ danh sách, mà `_xep_hang_lai` chỉ chấm `SO_UNG_VIEN_RERANK` ứng viên **
 này thì tính năng chạy nhưng không làm gì cả, và không có test nào bắt được.
 
 Trường hợp xấu nhất **theo thiết kế** là "không cải thiện", không phải "làm hỏng" — đúng
-nguyên tắc §5.45(a). Vẫn phải đo lại bằng đúng thí nghiệm cũ trước khi giữ.
+nguyên tắc §7.45(a). Vẫn phải đo lại bằng đúng thí nghiệm cũ trước khi giữ.
 
 **Kết quả đo** (12 tài liệu, 5554 chunk, 29 câu hỏi song ngữ, rerank BẬT, bật lần lượt từng
 thay đổi trên cùng một index):
@@ -1578,7 +1804,7 @@ thay đổi trên cùng một index):
 | Cấu hình | P@K | Recall@K | MRR | hạng 1 | chặn lạc đề |
 |---|---|---|---|---|---|
 | GỐC (trước khi sửa) | 0.500 | 0.937 | 0.980 | 24/25 | 2/4 |
-| + ngưỡng tương đối (§5.61) | 0.500 | 0.937 | 0.980 | 24/25 | 2/4 |
+| + ngưỡng tương đối (§7.61) | 0.500 | 0.937 | 0.980 | 24/25 | 2/4 |
 | + mở rộng xuyên trang | 0.467 | **0.875** | 0.980 | 24/25 | 2/4 |
 | + trần trang thích ứng | **0.567** | 0.937 | 0.980 | 24/25 | 2/4 |
 | + BM25 cứu hộ | 0.507 | **0.945** | 0.980 | 24/25 | 2/4 |
@@ -1586,11 +1812,11 @@ thay đổi trên cùng một index):
 Trần thích ứng và BM25 cứu hộ đúng như dự đoán: **+0.067 P@K** và **+0.008 Recall@K**, không
 đụng tới MRR lẫn khả năng chặn câu lạc đề. Nhưng mở rộng xuyên trang thì **làm tụt Recall@K
 0.062** — kết quả đi ngược hẳn kỳ vọng. Hoá ra chính metric mới là thứ sai ở đây, và việc
-chứng minh điều đó là §5.65.
+chứng minh điều đó là §7.65.
 
 ---
 
-### 5.63 Prompt: quy tắc 5 và 6 xung đột, và model 4B luôn chọn cái dễ
+### 7.63 Prompt: quy tắc 5 và 6 xung đột, và model 4B luôn chọn cái dễ
 
 ```
 5. Trả lời ĐẦY ĐỦ ... tổng hợp mọi thông tin liên quan
@@ -1607,13 +1833,13 @@ không trích lại nguyên văn nhiều lần, không mở đầu/kết luận 
 bớt** thông tin có trong ngữ cảnh để câu trả lời ngắn lại.
 
 **Thứ tự sửa quan trọng hơn bản thân bản sửa.** Đây là nguyên nhân **yếu nhất** trong ba
-nguyên nhân của "câu trả lời ngắn" (§5.60 và §5.61 là hai cái kia). Sửa prompt trước hai cái
+nguyên nhân của "câu trả lời ngắn" (§7.60 và §7.61 là hai cái kia). Sửa prompt trước hai cái
 kia sẽ cho một cải thiện nhẹ — đủ để tưởng đã tìm đúng nguyên nhân — trong khi bug thật vẫn
 nằm nguyên đó. Ghi lại thứ tự này vì nó là cái bẫy chứ không phải chi tiết vụn.
 
 ---
 
-### 5.64 Bộ HELD-OUT: biến "hệ thống có overfit không" thành một con số
+### 7.64 Bộ HELD-OUT: biến "hệ thống có overfit không" thành một con số
 
 Đây là bài học kiến trúc thật nằm dưới cả bốn mục trên.
 
@@ -1636,7 +1862,7 @@ khảo LLM lật điểm đã làm trung bình đổi 0,05, nên khoảng cách 
 
 **Một cảnh báo phải đọc kèm:** 6 tài liệu `Bai*.docx` gần như không có ngắt trang (`Bai5` chỉ
 1 "trang", `Bai2` có 2), mà Precision@K/Recall@K so khớp theo `(nguồn, trang)` — nên với chúng
-Recall@K **suy biến**: lấy về bất kỳ chunk nào cũng thành 1.00 (§5.39). Vì vậy mỗi tài liệu
+Recall@K **suy biến**: lấy về bất kỳ chunk nào cũng thành 1.00 (§7.39). Vì vậy mỗi tài liệu
 loại đó chỉ được đặt 1–2 câu, và khi đọc kết quả phải nhìn Citation accuracy bên cạnh
 Recall@K chứ không thay thế nó.
 
@@ -1697,22 +1923,22 @@ Cùng lúc đó, khoảng cách MRR đi ngược lại:
 Đây là phép thử rẻ nhất để phân biệt hai thứ: **thêm mẫu rồi xem khoảng cách nở ra hay co
 lại**. Tín hiệu thật không loãng đi khi có thêm dữ liệu; nhiễu thì có. Và nó chỉ làm được khi
 bộ đo đủ lớn — một lý do cụ thể để bỏ công mở rộng held-out thay vì tin con số đầu tiên đo
-được. Metric tất định (§4) không cần phép thử này; metric có LLM chấm thì luôn cần.
+được. Metric tất định (KET_QUA_DO_DAC.md §4) không cần phép thử này; metric có LLM chấm thì luôn cần.
 
 *P@K KHÔNG so được giữa hai bộ, và phải nói ra thay vì để nó nằm im trong bảng.* Precision@K
 phụ thuộc trực tiếp vào số trang đúng mỗi câu: bộ in-sample trung bình **2.84** trang/câu, bộ
 held-out chỉ **1.20**. Với `TOP_K=4`, một câu chỉ có 1 trang đúng thì P@K trần đã là 0.25 bất kể
 hệ thống tốt đến đâu. Chênh lệch +0.256 vì thế phần lớn là **hiện vật của cách ra đề**,
-không phải bằng chứng overfit — đúng loại bẫy mà §5.65 vừa mắc một lần.
+không phải bằng chứng overfit — đúng loại bẫy mà §7.65 vừa mắc một lần.
 
 Khoảng cách đó, kèm giải thích vì sao nó tồn tại, là thứ phân biệt một đồ án RAG với một
 tutorial "chat with PDF". Hầu như không ai đo nó.
 
 ---
 
-### 5.65 Khi chính thước đo là thứ sai — Recall@K không nhìn thấy mở rộng xuyên trang
+### 7.65 Khi chính thước đo là thứ sai — Recall@K không nhìn thấy mở rộng xuyên trang
 
-Mở rộng xuyên trang (§5.62) làm **Recall@K tụt 0.937 → 0.875**. Theo đúng nguyên tắc "đo
+Mở rộng xuyên trang (§7.62) làm **Recall@K tụt 0.937 → 0.875**. Theo đúng nguyên tắc "đo
 trước/sau rồi mới giữ", đáng ra phải bỏ ngay. Nhưng trước khi bỏ có một câu hỏi phải trả lời:
 **metric này có đo được thứ mà thay đổi kia làm không?**
 
@@ -1745,12 +1971,12 @@ thước đo không bị hiện vật thì mở rộng xuyên trang **cải thi�
 **Kết luận: giữ, và ghi rõ vì sao con số trông như tệ đi.** Nhưng hai hệ quả phải nói ra chứ
 không được giấu:
 
-1. **Recall@K trước và sau thay đổi này KHÔNG so trực tiếp được nữa.** Bảng §5.62 vẫn giữ
+1. **Recall@K trước và sau thay đổi này KHÔNG so trực tiếp được nữa.** Bảng §7.62 vẫn giữ
    nguyên con số 0.875 chứ không sửa cho đẹp — sửa đi là che mất chính bài học. Khi báo cáo,
    phải kèm cả hai chỉ số.
 2. **Trích dẫn có thể trỏ thiếu.** Đoạn trích phủ tối đa 3 trang nhưng chỉ ghi trang neo, nên
    câu trả lời có thể dựa vào nội dung ở trang bên cạnh mà nguồn lại chỉ dẫn một trang — đúng
-   loại sai lệch §5.54 đã phải sửa một lần. Vì vậy `dinh_dang_trich_dan()` nay trả kèm
+   loại sai lệch §7.54 đã phải sửa một lần. Vì vậy `dinh_dang_trich_dan()` nay trả kèm
    `cac_trang` và giao diện ghi *"trang/slide 12–13"* khi đoạn trích vượt ranh giới trang.
 
 **Bài học chung, và nó lớn hơn tính năng này.** Một metric là một *mô hình* của thứ ta quan
@@ -1762,7 +1988,7 @@ biệt là hỏi "metric này đo được thứ tôi vừa đổi không" **tr�
 không phải sau khi con số đã dẫn tới kết luận sai.
 
 
-### 5.66 Ingestion quét cùng một tài liệu nhiều lần — và bốn tầng sửa
+### 7.66 Ingestion quét cùng một tài liệu nhiều lần — và bốn tầng sửa
 
 Một bản rà soát chi phí toàn hệ thống cho ra kết luận trái với trực giác ban đầu: **nút thắt
 không nằm ở FAISS hay ở phần tìm kiếm, mà nằm ở ingestion**. Truy xuất chạy trên vector đã
@@ -1789,7 +2015,7 @@ lần, đọc text + dò bảng/cột + nhận diện tiêu đề + **liệt kê
 (2) OCR các trang đã đánh dấu; (3) gộp OCR, dọn dẹp, lọc trang mục lục; (4) render những ảnh
 được giữ lại.
 
-Điều khiến việc chia pha này *khó* nằm ở một quy tắc rất tinh tế đã có từ §5.49: ảnh phủ kín
+Điều khiến việc chia pha này *khó* nằm ở một quy tắc rất tinh tế đã có từ §7.49: ảnh phủ kín
 một trang chỉ được loại khi **OCR đã chứng minh** trang đó là ảnh chụp một trang chữ — mà
 điều đó thì phải chờ OCR chạy xong mới biết. Cách giải: `ung_vien_anh_trang()` trả về
 `(bbox, có_phủ_cả_trang)` và để chỗ gọi quyết định *sau*. Nhờ vậy quy tắc cũ được giữ **nguyên
@@ -1876,7 +2102,7 @@ nhả GIL). Ba chỗ cố ý **không** song song hoá, và lý do của mỗi c
   Windows `spawn` còn chạy lại phần khởi tạo của `config`. Quan trọng hơn cả: **sau khi có
   cache + index tăng dần, lần build thứ hai gần như không còn đọc lại tài liệu nào** — song
   song hoá một việc đã không còn xảy ra là tối ưu nhầm chỗ.
-- **Số worker mặc định** suy từ `os.cpu_count()` nhưng chặn trên ở 2 (§5.68): mọi luồng đi qua
+- **Số worker mặc định** suy từ `os.cpu_count()` nhưng chặn trên ở 2 (§7.68): mọi luồng đi qua
   **một** máy chủ Ollama, mở hàng chục yêu cầu cùng lúc không làm model chạy nhanh hơn (nó
   vẫn xếp hàng) mà chỉ làm RAM/VRAM phình lên.
 
@@ -1900,11 +2126,11 @@ tới hai quyết định tối ưu khác nhau. Bảng tổng kết in sau mỗi
 
 ---
 
-### 5.67 Ngân sách thích ứng lúc truy vấn — và ranh giới không được vượt
+### 7.67 Ngân sách thích ứng lúc truy vấn — và ranh giới không được vượt
 
 Ở phía query, kết luận của bản rà soát là **không viết lại kiến trúc**: dense retrieval, BM25
-cứu hộ, RRF, reranker và citation đều là những quyết định đã được benchmark (§5.24, §5.29,
-§5.30). Embedding `multilingual-e5-base` chậm hơn `e5-small` nhưng hơn hẳn ở truy xuất chéo
+cứu hộ, RRF, reranker và citation đều là những quyết định đã được benchmark (§7.24, §7.29,
+§7.30). Embedding `multilingual-e5-base` chậm hơn `e5-small` nhưng hơn hẳn ở truy xuất chéo
 ngôn ngữ (MRR 0.738 so với 0.364), nên **không đổi model chỉ để lấy tốc độ**.
 
 Thứ *có* thể sửa là việc mọi câu hỏi đang được cấp **ngân sách tối đa**. "Overfitting là gì?"
@@ -1922,10 +2148,10 @@ không được đặt ở giữa.
 Độ phức tạp được đánh giá trên **truy vấn chính** (bản đã mang ngữ cảnh hội thoại), không phải
 câu người dùng gõ, và được ghi lại một lần vào `self.la_cau_hoi_phuc_tap` để bước truy xuất và
 bước sinh dùng chung một phán đoán. Chấm trên câu gốc sẽ xếp *"Thế còn cái thứ hai?"* vào
-nhóm đơn giản — tức cấp ngân sách thấp cho đúng loại câu hỏi khó nhất của hệ thống (§5.58).
+nhóm đơn giản — tức cấp ngân sách thấp cho đúng loại câu hỏi khó nhất của hệ thống (§7.58).
 
 **Ranh giới tuyệt đối: KHÔNG hạ `num_ctx`.** Đây là chỗ mà một tối ưu tốc độ "hợp lý" sẽ tái
-lập đúng bug tệ nhất từng có (§5.60). Hạ `num_ctx` **không** làm prompt ngắn lại; nó chỉ
+lập đúng bug tệ nhất từng có (§7.60). Hạ `num_ctx` **không** làm prompt ngắn lại; nó chỉ
 chuyển quyền quyết định cắt chỗ nào từ ta sang Ollama, mà Ollama luôn cắt từ **đầu** phần user
 content — tức xoá đúng đoạn trích `[1]`, đoạn liên quan nhất, vì `_ghep_prompt()` xếp đoạn tốt
 nhất lên trước. Không lỗi, không cảnh báo, chỉ có câu trả lời tự nhiên kém đi.
@@ -1945,7 +2171,7 @@ rõ trong log, thay vì một lựa chọn ngẫu nhiên của bộ cắt prompt
 
 **Adaptive TOP-K: cố ý KHÔNG làm.** Đây là một mục trong đề xuất tối ưu nhưng bị loại sau khi
 xét: `TOP_K = 4` là giá trị mà toàn bộ Recall@K, MRR và các ngưỡng lọc trong hệ thống đã được
-hiệu chỉnh trên đó (§5.61, §5.64). Hạ nó cho "câu hỏi đơn giản" mà **không đo lại** chính là
+hiệu chỉnh trên đó (§7.61, §7.64). Hạ nó cho "câu hỏi đơn giản" mà **không đo lại** chính là
 đổi độ chính xác lấy tốc độ — đúng điều mà cả đợt tối ưu này tồn tại để tránh. Ba thứ đã làm
 (ứng viên rerank, `num_predict`, nén ngữ cảnh) đều không đụng tới tập đoạn trích được chọn
 trong trường hợp bình thường. *(Phần `num_predict` thích ứng sau đó đã bị **gỡ bỏ hẳn** — nó
@@ -1955,7 +2181,7 @@ là việc tiếp theo đáng làm.
 ---
 
 
-### 5.68 GPU: một cấu hình sai không ai nhìn thấy, và cách chia VRAM giữa bốn model
+### 7.68 GPU: một cấu hình sai không ai nhìn thấy, và cách chia VRAM giữa bốn model
 
 **Lỗi gốc không nằm trong code.** Máy làm đồ án có RTX 5060 8 GB, nhưng `pip install
 sentence-transformers` kéo về `torch` bản **CPU-only** — đó là bản mặc định trên PyPI. Hệ quả:
@@ -1964,7 +2190,7 @@ trên CPU. Không exception, không cảnh báo, kết quả trả về vẫn đ
 nhất là phần truy xuất tốn 11–12 giây mỗi câu — một con số hoàn toàn có thể bị đọc nhầm thành
 "cross-encoder vốn đắt như vậy".
 
-Đây là biến thể mới của đúng loại lỗi mà §5.20 và §5.60 đã gặp: **hệ thống chạy đúng nhưng
+Đây là biến thể mới của đúng loại lỗi mà §7.20 và §7.60 đã gặp: **hệ thống chạy đúng nhưng
 chạy sai điều kiện, và không có gì trong chính hệ thống nói ra điều đó**. Cách chữa cũng cùng
 một kiểu — bắt nó phải tự khai báo (`tai_nguyen_gpu.mo_ta_phan_cung()` ghi ra log và hiện trên
 thanh bên), thay vì trông vào việc ai đó nhớ kiểm tra.
@@ -1989,7 +2215,7 @@ của mọi câu hỏi: người dùng chờ nó xong mới thấy chữ đầu 
 một cách thất bại chứ không phải một cách tối ưu, nên điều này phải được chứng minh chứ không
 phải giả định. Chạy cùng 6 câu hỏi trên cùng index, một lần ép `cpu` một lần ép `cuda`:
 **6/6 câu trả về đúng những đoạn đó, đúng thứ tự đó**, lệch điểm similarity tối đa 2,38×10⁻⁷ —
-sai số làm tròn float32. Nhờ vậy mọi số chất lượng đã đo trước đây (§4, §5) vẫn còn hiệu lực
+sai số làm tròn float32. Nhờ vậy mọi số chất lượng đã đo trước đây (KET_QUA_DO_DAC.md §4, §5) vẫn còn hiệu lực
 mà không phải chạy lại toàn bộ.
 
 **HARDWARE-AWARE, KHÔNG PHẢI RTX-5060-AWARE.** Mọi tham số đều suy từ thứ máy tự báo cáo, vì
@@ -2020,7 +2246,7 @@ Thông lượng **đứng yên** trong khoảng 320–326 chunk/s trên toàn d�
 hơn gấp đôi — nút thắt không nằm ở độ song song của lô. Vì vậy hàm chọn batch chỉ dùng VRAM để **hạ** batch khi máy chật,
 không bao giờ nâng lên để "tận dụng GPU". Cùng một logic áp cho số worker: đo lại trên máy
 rảnh cho thấy **GPU đã bão hoà 84% ngay từ MỘT worker**, nên 2→4 worker không lợi gì và
-`SO_WORKER_VISION` mặc định đã đổi từ 4 xuống 2 (§8.5).
+`SO_WORKER_VISION` mặc định đã đổi từ 4 xuống 2 (KET_QUA_DO_DAC.md §8.5).
 
 **CHIA GIAI ĐOẠN — và bằng chứng nó cần thật.** Riêng ba model của giai đoạn truy vấn đã là
 8,07 GB (LLM 4,75 + reranker 2,20 + embedding 1,12), không vừa card 7,96 GB — chưa tính model
@@ -2050,7 +2276,7 @@ sai đó đủ để lật ngược kết luận:
 
 Hậu quả quan sát được khi để cả ba trên GPU (ứng dụng thật, không phải benchmark): VRAM còn
 trống **288 MB**, reranker mất ~58 giây mới nạp xong, lượt hỏi đầu tiên báo **50,8 giây** cho
-bước lẽ ra mất chưa tới một giây (§8.7 của KET_QUA_DO_DAC.md) — **không một dòng lỗi nào**.
+bước lẽ ra mất chưa tới một giây (KET_QUA_DO_DAC.md §8.7) — **không một dòng lỗi nào**.
 
 Vì vậy ranh giới giai đoạn làm hai việc chứ không phải một. Đo trên các lần build thật:
 
@@ -2082,7 +2308,7 @@ phiên. Benchmark hoàn toàn không thấy điều này vì nó luôn chạy in
 | Sau khi nhả vision, embedding vẫn mặc định ở GPU | 22,8 s |
 | Câu thứ hai trong cùng phiên đó | 7,4 s |
 | **Sau khi đổi mặc định: embedding ở CPU, rerank ở GPU** | **0,7 s** |
-| Trung vị các câu tiếp theo, đo lại đầy đủ (§8.7) | **0,45 s** |
+| Trung vị các câu tiếp theo, đo lại đầy đủ (KET_QUA_DO_DAC.md §8.7) | **0,45 s** |
 
 Cách sửa là đổi **trạng thái mặc định** chứ không thêm một bước chuyển nữa: mặc định phải là
 trạng thái của giai đoạn HAY GẶP NHẤT (query), còn ingestion — vốn luôn đi qua
@@ -2112,54 +2338,215 @@ lên hoàn toàn khác:
 
 Truy xuất — thứ cả đợt tối ưu này nhắm vào — nay chỉ còn **0,45 giây** mỗi câu, tức khoảng
 **1,3%** một lượt hỏi, và **không còn là chỗ đáng tối ưu tiếp**. Embedding, sau khi lên GPU,
-chỉ còn chiếm 2,7% chi phí ingestion. Mọi nỗ lực
-tối ưu tiếp theo mà không nhắm vào hai ô in đậm ở trên đều là tối ưu nhầm chỗ, và bảng này
+chỉ còn chiếm 2,7% chi phí ingestion. Mọi nỗ lực tối ưu tiếp theo mà không nhắm vào hai ô
+in đậm ở trên đều là tối ưu nhầm chỗ, và bảng này
 tồn tại chính để chặn điều đó.
 
 ---
 
-## 6. Triển khai và chạy hệ thống
+## 8. Performance Considerations
 
-**Yêu cầu:** Python 3.11+ (đã kiểm chứng trên 3.14) · [Ollama](https://ollama.com) đã cài và
-`ollama pull qwen3:4b` · không bắt buộc GPU.
+Nguyên tắc chung của mục này: **đo trước, tối ưu sau**. Mọi con số dưới đây đều trích từ
+[KET_QUA_DO_DAC.md](KET_QUA_DO_DAC.md) §8 — nơi có môi trường đo và cách tái lập đầy đủ.
 
-```bash
-pip install -r requirements.txt      # lần đầu tự tải embedding ~1.1GB + rerank ~2.2GB
-streamlit run app.py                 # → http://localhost:8501
-pytest tests/ -v                     # hoặc: pytest -m "not slow"
-python evaluation/run_evaluation.py  # sau khi build index + điền test_questions.json
+### 8.1 Nút thắt nằm ở đâu
+
+Câu hỏi "chỗ nào đang chậm" được biến thành một phép đo thay vì một phỏng đoán: sau mỗi lần
+"Đọc tài liệu", `rag/do_thoi_gian.py` in bảng thời gian từng bước kèm số lần gọi và phần trăm
+(`BAT_PROFILING_INGESTION`).
+
+| Giai đoạn | Chi phí lớn nhất | Tỉ trọng |
+|---|---|---:|
+| Ingestion — tài liệu **nhiều hình** | chú thích ảnh bằng model vision | **89,8%** |
+| Ingestion — tài liệu **thuần chữ** | đọc text từ PDF | **87,8%** |
+| Ingestion — tài liệu **scan** | OCR (5,3 giây mỗi trang trên GPU) | gần như toàn bộ |
+| Ingestion — **cache đầy** | — (3,48 s cho 1.209 chunk, nhanh hơn **81×**) | — |
+| Query | LLM sinh chữ (phần lớn là chuỗi suy luận của `qwen3`) | **~98%** |
+
+Bảng này phải có **ba dòng ingestion** chứ không phải một: "chỗ nào tốn nhất" phụ thuộc vào
+*loại tài liệu*, không phải vào hệ thống. Và kết luận đáng nhớ nhất là dòng cuối — **truy xuất
+chỉ còn 0,45 giây mỗi câu, tức ~1,3% một lượt hỏi**, nên nó không còn là chỗ đáng tối ưu tiếp.
+
+### 8.2 Bốn tầng tránh làm lại việc đã làm
+
+Chi phí đắt nhất của hệ thống nằm ở Ingestion, và cách rẻ nhất để giảm nó là **đừng chạy lại**:
+
+| Tầng | Cơ chế | §  |
+|---|---|---|
+| Đọc một lượt | PDF duyệt đúng 1 lần chia 4 pha, thay vì 2 lượt duyệt + tới 5 lần đọc lại mỗi trang dính chữ | §7.66 |
+| Hiệu chỉnh theo tài liệu | Mức `x_tolerance` dùng được ở trang trước được thử **trước tiên** ở trang sau | §7.66 |
+| Cache theo băm nội dung | 4 kho: tài liệu · OCR · chú thích ảnh · embedding | §7.66 |
+| Index tăng dần | Chỉ xử lý lại file mới/đã đổi, so bằng **băm nội dung** chứ không phải `mtime` | §3.1 |
+
+Khoá cache là **nội dung**, không phải tên file hay `mtime`. `mtime` không đáng tin theo cả hai
+chiều: `git checkout` và đồng bộ cloud đổi `mtime` mà không đổi nội dung (build lại vô nghĩa),
+còn vài công cụ ghi đè file mà giữ nguyên `mtime` (**bỏ sót** thay đổi thật — kiểu hỏng tệ hơn
+hẳn). Mỗi kho đi kèm **vân tay cấu hình**: đổi `BAT_OCR_DU_PHONG` hay `DPI_RENDER_TRANG_OCR`
+mà vẫn trả cache cũ chính là kiểu lỗi không triệu chứng mà cả tài liệu này tồn tại để tránh.
+
+Kết quả đo: corpus 3 tài liệu nhiều hình mất **281,7 s** lần đầu và **3,48 s** khi cache đầy.
+
+### 8.3 Phân bổ phần cứng — suy từ máy, không phải hằng số
+
+`rag/tai_nguyen_gpu.py` dò phần cứng rồi tự chọn cách chạy. Không có tham số nào phải đặt bằng
+tay, và không có hằng số nào hiệu chỉnh riêng cho một loại card (§7.68):
+
+| Tham số | Suy từ đâu |
+|---|---|
+| Thiết bị cho embedding / rerank | `torch.cuda.is_available()`, ép riêng từng vai trò bằng `THIET_BI_*` |
+| Batch size encode | VRAM **còn trống**, chặn trên bởi `EMBEDDING_BATCH_SIZE` |
+| Số worker OCR/Vision | min(trần cấu hình, số nhân CPU, VRAM còn trống) |
+
+Hai phép đo lật ngược trực giác ở đây. **Thứ nhất**, "có GPU thì cứ tăng batch cho nhanh" là
+sai: thông lượng đứng yên ở 320–326 chunk/s trên toàn dải 16→256 trong khi VRAM đỉnh tăng hơn
+gấp đôi — nên hàm chọn batch chỉ dùng VRAM để **hạ** batch khi máy chật, không bao giờ nâng
+lên. **Thứ hai**, GPU đã bão hoà 84% ngay từ **một** worker vision, nên 1→2 worker lợi 1,55×
+còn 2→4 không lợi gì.
+
+**Chia VRAM theo giai đoạn** là quyết định kiến trúc quan trọng nhất của mục này. Ba model của
+giai đoạn truy vấn cộng lại **8,07 GB** (LLM 4,75 + reranker 2,20 + embedding 1,12) — không
+vừa card 7,96 GB. Mà tràn VRAM thì *không báo lỗi*: đo được VRAM còn trống tụt xuống 288 MB,
+reranker mất ~58 giây mới nạp xong, và lượt hỏi đầu tiên báo **50,8 giây** cho bước truy xuất.
+
+```
+INGESTION  →  Vision/OCR + embedding(GPU)   … kết thúc: còn 0,79 GB trống
+    ↓ nhả model vision · dọn bộ đệm CUDA    … còn 5,70 GB
+    ↓ card chật → embedding xuống CPU       … còn 6,79 GB
+QUERY      →  reranker(GPU) + LLM(GPU)      … truy xuất còn 0,45 s/câu
 ```
 
-Đo mức OVERFIT (§5.64) — con số quan trọng hơn từng bảng điểm riêng lẻ:
-```bash
-python evaluation/run_evaluation.py --nhanh          # chỉ truy xuất, bộ in-sample
-python evaluation/run_evaluation.py --nhanh --held-out  # chỉ truy xuất, bộ held-out
-python evaluation/run_evaluation.py --khoang-cach    # cả hai bộ + chênh lệch
-```
+Thứ bị hy sinh là **embedding**, vì lúc truy vấn nó chỉ mã hoá 1–3 chuỗi ngắn (GPU nhanh hơn
+CPU đúng 14 ms), còn reranker chấm vài chục cặp mỗi câu và nằm trên đường đi của *mọi* câu
+hỏi. **Trạng thái mặc định là trạng thái của giai đoạn query**, không phải ingestion — vì phần
+lớn phiên làm việc bắt đầu bằng việc mở app lên hỏi ngay trên index đã có. Card lớn hơn
+`VRAM_DU_GIU_EMBEDDING_TREN_GPU_GB` (mặc định 10 GB) thì giữ tất cả trên GPU, không phải đánh
+đổi gì.
 
-Các script kiểm định (mỗi cái đo độ tin cậy của MỘT cơ chế, trên bộ ca đã biết trước đáp án):
-```bash
-python evaluation/kiem_dinh_judge.py                 # thước đo Faithfulness (§5.43)
-python evaluation/kiem_dinh_doi_chieu.py --so-lan 3  # cơ chế phát hiện mâu thuẫn (§5.59)
-python evaluation/kiem_dinh_viet_lai.py --chi-tang-1 # nhận diện câu nối tiếp (§5.58)
-python evaluation/kiem_dinh_viet_lai.py --truy-xuat "Một câu hỏi đầy đủ về tài liệu của bạn"
-```
+### 8.4 Ngân sách thích ứng lúc truy vấn
 
-Sao chép `.env.example` → `.env` nếu muốn đổi giá trị mặc định (không bắt buộc).
+Không phải câu hỏi nào cũng cần ngân sách tối đa. `la_cau_hoi_phuc_tap()` phân loại bằng ba
+dấu hiệu (độ dài, động từ yêu cầu nhiều vế, có phải câu kiểm chứng không) và hạ số ứng viên
+rerank từ 30 xuống 12 cho câu hỏi đơn giản (§7.67).
 
-Kiểm thử độc lập từng module:
-```python
-from rag.document_loader import doc_pdf
-from rag.chunking import chia_chunk
-from rag.embedding import EmbeddingService
-from rag.vector_store import VectorStore
-from pathlib import Path
+Ngưỡng cố ý nghiêng hẳn về phía **cấp dư**: đoán nhầm câu phức tạp thành đơn giản thì câu trả
+lời có thể thiếu ý — người dùng nhìn thấy; đoán nhầm chiều ngược lại chỉ khiến câu đó chạy
+chậm bằng đúng bản cũ. Hai loại sai không ngang giá nên ngưỡng không được đặt ở giữa.
 
-print(doc_pdf(Path("data/raw/ten_file.pdf")))
-print(chia_chunk([{"nguon": "x.pdf", "trang": 1, "noidung": "..."}]))
-svc = EmbeddingService()
-store = VectorStore(dimension=svc.dimension)
-```
+Hai ranh giới **không được vượt**: không hạ `num_ctx` (§4.7, §7.60) và không hạ `TOP_K` theo độ
+phức tạp câu hỏi — `TOP_K=4` là giá trị mà toàn bộ Recall@K, MRR và các ngưỡng lọc đã hiệu
+chỉnh trên đó (§10).
 
-Chi tiết cách chạy, cấu trúc thư mục và các giới hạn đã biết: xem [README.md](README.md).
+### 8.5 Chi phí của việc chạy sai cấu hình
+
+Một cảnh báo về hiệu năng thuộc loại khác: `pip install sentence-transformers` kéo về `torch`
+bản **CPU-only**, và trên máy CÓ GPU đó là một cấu hình sai **không gây lỗi** — hệ thống vẫn
+trả lời đúng từng chữ, chỉ chậm hơn nhiều lần (embedding 12,8×, rerank 11,2×, truy xuất
+đầu-cuối 9,0×). Vì không có triệu chứng nào, cách chữa là **bắt hệ thống tự khai báo**:
+`tai_nguyen_gpu.mo_ta_phan_cung()` ghi ra log và hiện trên thanh bên (§7.68).
+
+---
+
+## 9. Limitations and Trade-offs
+
+Mục này ghi những chỗ hệ thống **cố ý** chọn một bên của một đánh đổi, kèm lý do. Giới hạn ở
+mức người dùng (thời gian trả lời, loại tài liệu đọc được…) nằm ở [README.md](README.md) §13.
+
+### 9.1 Đánh đổi có chủ đích
+
+| Chọn | Bỏ | Lý do | §  |
+|---|---|---|---|
+| BM25 **TẮT** ở vai trò xếp hạng | tìm kiếm từ khoá | Kết quả âm tính đo được: trên corpus song ngữ BM25 không giúp gì ngay trên sở trường của nó, và hại nặng truy xuất chéo ngôn ngữ (0,703 → 0,536) | §7.30 |
+| `TOP_K = 4` | Recall@K cao hơn ở `TOP_K = 6` | Prompt ngắn ~25%, P@K tăng, MRR không đổi; cái mất là Recall@K −0,04 | §7.67 |
+| Ngữ cảnh hội thoại **chỉ gồm câu hỏi trước** | gồm cả câu trả lời trước | Đưa câu trả lời cũ vào sẽ lấn át vector truy vấn, và cho model trích lại lời của chính nó thì trích dẫn mất ý nghĩa | §7.58 |
+| Đối chiếu nguồn nghiêng về **im lặng** | bắt được nhiều mâu thuẫn hơn | Báo động giả làm người dùng mất niềm tin vào chính tài liệu của họ — tệ hơn hẳn bỏ sót | §7.59 |
+| Nhận diện câu nối tiếp nghiêng về **độ phủ** | độ chính xác | Nhận nhầm gần như miễn phí (câu gốc vẫn là một nhánh riêng); bỏ sót thì truy xuất trượt hẳn | §7.58 |
+| Mở rộng đoạn trích **xuyên trang** | Recall@K đọc đẹp hơn | Không câu nào mất nội dung (Recall phủ 0,959), nhưng metric neo theo trang không nhìn thấy điều đó | §7.65 |
+| Embedding xuống **CPU** lúc truy vấn | 14 ms mỗi câu | Nhường 1,12 GB VRAM cho reranker, thứ nằm trên đường đi của mọi câu hỏi | §7.68 |
+| Đọc tài liệu **không** song song hoá | thời gian build lần đầu | `pdfplumber` bị GIL chặn; và sau khi có cache thì lần build thứ hai gần như không đọc lại tài liệu nào | §7.66 |
+
+### 9.2 Giới hạn của chính kiến trúc
+
+- **Không có backend API riêng.** Streamlit vừa là giao diện vừa là composition root, nên hệ
+  thống phục vụ 1 người dùng tại 1 thời điểm và không scale ngang được. Đúng phạm vi đã chốt
+  (§7.9).
+- **Không có conversation memory qua nhiều phiên.** Lịch sử chỉ sống trong `session_state` của
+  Streamlit. Cần phân biệt với một khiếm khuyết thật đã được sửa: truy xuất **trong cùng một
+  phiên** trước đây không nhìn thấy lịch sử, và nay đã thấy (§7.58).
+- **Phát hiện mâu thuẫn chỉ soi các đoạn ĐÃ ĐƯỢC TRUY XUẤT** cho câu hỏi hiện tại. Hai tài liệu
+  mâu thuẫn ở phần không liên quan tới câu đang hỏi thì không được phát hiện — đó là bài toán
+  khác (kiểm định nhất quán toàn corpus), tốn kém hơn nhiều bậc (§7.59).
+- **`IndexFlatIP` là tìm kiếm vét cạn**, độ trễ và RAM tăng tuyến tính theo số chunk. Ngưỡng
+  phải đổi đã được đo — xem §10.
+
+### 9.3 Giới hạn của chính phép đo
+
+Đây là phần dễ bị bỏ qua nhất khi đọc một bảng số liệu:
+
+- **Precision@K/Recall@K suy biến với DOCX không có ngắt trang.** Hai metric so khớp theo
+  `(nguồn, trang)`, mà DOCX không có "trang" cố định — nên với file như vậy chỉ cần lấy về một
+  chunk bất kỳ là Recall@K = 1,00, bất kể chunk đó có chứa câu trả lời hay không. Với loại tài
+  liệu này chỉ Citation accuracy còn mang thông tin (§7.39).
+- **Phần lớn metric không tất định.** Chỉ Precision@K, Recall@K và MRR so sánh trực tiếp được;
+  Citation accuracy dao động mạnh nhất, chênh dưới ~0,1 không nên diễn giải là gì cả (§7.46).
+- **LLM-as-judge có sai số không triệu chứng.** Điểm 0,0 chấm cho một câu trả lời đúng trông y
+  hệt điểm 0,0 chấm cho một câu bịa. Bốn cơ chế đã thêm để thước đo tự kiểm tra chính nó
+  (§7.43, §7.48).
+- **Một thay đổi làm hỏng giả định của metric sẽ luôn trông như hồi quy**, kể cả khi nó là cải
+  thiện — đúng chuyện đã xảy ra với mở rộng xuyên trang (§7.65).
+- **Hệ thống có overfit, và mức độ đã được đo**: tầng *tìm đúng nội dung* tổng quát tốt, nhưng
+  tầng *xếp đúng thứ tự* thì có overfit thật (MRR 0,980 → 0,843 trên bộ held-out) — đúng vào
+  tầng mà mọi ngưỡng của hệ thống tác động vào (§7.64).
+
+---
+
+## 10. Future Architecture Improvements
+
+**1. Đổi FAISS index khi corpus lớn hơn — ngưỡng đã đo, không ước.**
+
+`python evaluation/do_quy_mo_index.py` đo với `k=60` (đúng số ứng viên hệ thống thật lấy về) và
+đo **từng câu một**, trên vector giả lập **có gom cụm theo chủ đề** như embedding thật:
+
+| Số chunk | FlatIP p95 | RAM | HNSW p95 / recall | IVFFlat p95 / recall |
+|---:|---:|---:|---|---|
+| 10.000 | 1,4 ms | 29 MB | 0,8 ms / 0,87 | 0,2 ms / 0,90 |
+| 50.000 | 7,2 ms | 146 MB | 1,2 ms / 0,74 | 1,1 ms / 0,96 |
+| 100.000 | 12,9 ms | 293 MB | 1,5 ms / 0,61 | 1,3 ms / 0,97 |
+
+- **Ngưỡng theo tốc độ: ~1,5 triệu chunk** (mức FlatIP chạm ngân sách 200 ms). Corpus hiện tại
+  (9.285 chunk) mới ở **0,6%**.
+- **Ngưỡng thực tế là BỘ NHỚ: ~700.000 chunk (≈2 GB RAM cho index)**, tức ~145.000 trang. RAM
+  chạm trần trước độ trễ khoảng gấp đôi.
+- **Khi đổi thì chọn `IndexIVFFlat`, KHÔNG phải HNSW**: ở 100.000 chunk cả hai đều nhanh hơn
+  Flat ~10 lần, nhưng IVF giữ recall 0,97 còn HNSW chỉ 0,61 — và recall HNSW tụt dần khi corpus
+  to lên nếu giữ nguyên `efSearch` (0,87 → 0,74 → 0,61).
+- Đổi index thì **bắt buộc** chạy lại `run_evaluation.py`: đoạn bị bỏ sót hoàn toàn có thể là
+  đoạn chứa câu trả lời. Nhanh hơn mà trả lời sai thì không phải cải tiến. (§7.44)
+
+**2. Adaptive TOP-K — hoãn có chủ đích, không phải bỏ quên.** `TOP_K = 4` là giá trị mà toàn bộ
+Recall@K, MRR và các ngưỡng lọc đã hiệu chỉnh trên đó. Hạ nó cho "câu hỏi đơn giản" mà không đo
+lại chính là đổi độ chính xác lấy tốc độ. Điều kiện để làm: có một phép đo Recall@K **tách theo
+nhóm độ phức tạp câu hỏi** trước đã (§7.67).
+
+**3. Giảm độ trễ thật ở tầng sinh.** Sau khi ingestion và phần cứng đã tối ưu xong, ~98% thời
+gian mỗi lượt hỏi nằm ở LLM sinh chữ, phần lớn là chuỗi suy luận nội bộ của `qwen3`. Đường khả
+dĩ còn lại là **đổi hẳn sang model không sinh suy luận** cho câu hỏi truy xuất thường — đã kiểm
+chứng rằng `think=False` *không* làm được việc đó (nó chỉ đổ chuỗi lập luận thẳng vào câu trả
+lời, §7.23). Phải đo lại Faithfulness và Citation accuracy trước khi chốt.
+
+**4. Giám khảo mạnh hơn cho tầng evaluation.** Với `qwen3:4b`, 1/8 lần chấm cho kết quả ngược
+hẳn — trung vị 3 lần là vá chứ không phải sửa gốc. Đặt `JUDGE_MODEL` sang model lớn hơn rồi
+chạy `evaluation/kiem_dinh_judge.py` để xem có đáng đổi không (§7.43).
+
+**5. Nhận diện ô KHOÁ–GIÁ TRỊ trong biểu mẫu.** §7.41 đã cứu được phần lớn vấn đề bảng lớn,
+nhưng biểu mẫu hành chính vẫn là ca khó: nhãn và giá trị nằm chung một hàng với cả tiêu đề dài
+100 chữ, nên vector của chunk đó bị tiêu đề lấn át.
+
+**Cố ý KHÔNG làm:** conversation memory qua nhiều phiên (session ID, lưu lịch sử xuống đĩa),
+backend API riêng (FastAPI/Flask), so sánh lại FAISS với vector DB khác — đều ngoài phạm vi đồ
+án đã chốt (§7.9).
+
+---
+
+Cách cài đặt, chạy và cấu hình hệ thống: [README.md](README.md).
 Toàn bộ số liệu đo đạc kèm cách tái lập từng con số: [KET_QUA_DO_DAC.md](KET_QUA_DO_DAC.md).
+

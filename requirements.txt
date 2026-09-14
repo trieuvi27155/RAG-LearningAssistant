@@ -6,7 +6,7 @@ langchain-text-splitters>=0.2
 sentence-transformers>=2.7
 # torch đi kèm sentence-transformers, nhưng bản cài mặc định từ PyPI là CPU-ONLY. Trên máy
 # CÓ GPU NVIDIA, đó là một cấu hình sai KHÔNG gây lỗi: hệ thống vẫn trả lời đúng, chỉ chậm
-# hơn nhiều lần (đo được: embedding 13,3x, rerank 5,0x - xem KET_QUA_DO_DAC.md §7.4).
+# hơn nhiều lần (đo được: embedding 12,8x, rerank 11,2x - xem KET_QUA_DO_DAC.md §8.2).
 #
 # Muốn dùng GPU thì cài BẢN CUDA, thay <cuXXX> bằng phiên bản khớp driver của bạn
 # (`nvidia-smi` in ra "CUDA Version"; cu126/cu128/cu130 là các mốc phổ biến):

@@ -5,7 +5,7 @@
 Mọi con số trong file này đều đo lại trên **cùng một index**, bằng chính các script trong
 `evaluation/`. Phần nào không đo được thì ghi rõ là không đo được, không suy đoán thay.
 
-> **Đây là nguồn số liệu chuẩn của dự án.** [`ARCHITECTURE.md`](ARCHITECTURE.md) §5 giải thích
+> **Đây là nguồn số liệu chuẩn của dự án.** [`ARCHITECTURE.md`](ARCHITECTURE.md) §7 giải thích
 > *vì sao* mỗi quyết định được chọn, kèm bảng đo ở **thời điểm** ra quyết định — nhiều bảng
 > trong đó đo trên corpus nhỏ hơn hoặc trước khi có GPU, nên khi hai bên lệch nhau thì file này
 > là bên đúng. [`README.md`](README.md) là bản tóm tắt ngắn cho người đọc lần đầu.
@@ -299,7 +299,7 @@ vì trang có nội dung thật.
 > **Không có triệu chứng nào phân biệt bảng kết quả sinh ra từ nhãn sai với bảng sinh ra từ
 > nhãn đúng** — cả hai đều là bảng số trông hợp lý. Vì vậy mỗi nhãn phải được kiểm chứng bằng
 > cách mở đúng trang đó ra đọc, chứ không dựa vào trí nhớ về việc nội dung nằm ở đâu.
-> Chi tiết: ARCHITECTURE.md §5.33.
+> Chi tiết: ARCHITECTURE.md §7.33.
 
 ---
 
@@ -963,7 +963,7 @@ chính máy làm đồ án:
 > cụm ≈ 0,8, đúng khoảng đã đo trên corpus thật), chứ không phải ngẫu nhiên thuần. Chi tiết này
 > quyết định con số recall: vector ngẫu nhiên thuần trong không gian 768 chiều gần như luôn
 > vuông góc, tức ca xấu nhất cho mọi thuật toán xấp xỉ, và đo bằng dữ liệu đó thì HNSW ra recall
-> 0,17 — một con số không nói gì về hành vi thật (ARCHITECTURE.md §5.44). Phần **độ trễ** thì
+> 0,17 — một con số không nói gì về hành vi thật (ARCHITECTURE.md §7.44). Phần **độ trễ** thì
 > không phụ thuộc nội dung vector nên hợp lệ trong cả hai cách sinh.
 
 Đổi index thì **bắt buộc** chạy lại `run_evaluation.py`: đoạn bị bỏ sót hoàn toàn có thể là
@@ -1029,14 +1029,14 @@ Bật `LOG_PHAN_BO_DIEM=1` trong `.env` để in phân bố điểm từng lư�
 
 | Nội dung | Mục |
 |---|---|
-| Bug `num_ctx` và cách sửa | ARCHITECTURE.md §5.60 |
-| Ngưỡng tuyệt đối → ngưỡng tương đối | §5.61 |
-| Ba giả định "đúng cho slide" sai cho PDF văn xuôi | §5.62 |
-| Xung đột quy tắc 5 và 6 trong prompt | §5.63 |
-| Bộ held-out và cách đọc khoảng cách | §5.64 |
-| Khi chính thước đo là thứ sai | §5.65 |
-| Cách diễn giải các metric không tất định | ARCHITECTURE.md §5.46 · README.md |
-| Ingestion đọc một lượt + cache theo băm nội dung | §5.66 |
-| Ngân sách thích ứng lúc truy vấn | §5.67 |
-| GPU, chia VRAM giữa bốn model | §5.68 |
-| Ngưỡng quy mô FAISS (Flat vs IVF vs HNSW) | §5.44 |
+| Bug `num_ctx` và cách sửa | ARCHITECTURE.md §7.60 |
+| Ngưỡng tuyệt đối → ngưỡng tương đối | §7.61 |
+| Ba giả định "đúng cho slide" sai cho PDF văn xuôi | §7.62 |
+| Xung đột quy tắc 5 và 6 trong prompt | §7.63 |
+| Bộ held-out và cách đọc khoảng cách | §7.64 |
+| Khi chính thước đo là thứ sai | §7.65 |
+| Cách diễn giải các metric không tất định | ARCHITECTURE.md §7.46 · README.md |
+| Ingestion đọc một lượt + cache theo băm nội dung | §7.66 |
+| Ngân sách thích ứng lúc truy vấn | §7.67 |
+| GPU, chia VRAM giữa bốn model | §7.68 |
+| Ngưỡng quy mô FAISS (Flat vs IVF vs HNSW) | §7.44 |

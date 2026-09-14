@@ -128,7 +128,7 @@ def test_phat_hien_duoc_mau_thuan_that():
 
 
 def test_cac_lan_cham_bat_dong_thi_khong_bao_gi():
-    """§5.43 đã đo: model 4B lật phán quyết 1/8 lần dù temperature=0. Báo động giả ở đây làm
+    """§7.43 đã đo: model 4B lật phán quyết 1/8 lần dù temperature=0. Báo động giả ở đây làm
     người dùng mất niềm tin vào chính tài liệu của họ - tệ hơn hẳn việc bỏ sót."""
     client = ClientGia([_co(0.9), _khong()])
     assert tim_mau_thuan([DOAN_NAM, DOAN_BON], embedding_service=None, client=client) == []
@@ -148,7 +148,7 @@ def test_muc_do_duoi_nguong_bi_bo_qua():
 
 
 def test_diem_ngoai_thang_bi_loai_chu_khong_bi_kep():
-    """Đúng lỗi §5.48: giám khảo đổi sang thang phần trăm. Kẹp 100 -> 1.0 là đoán ý model
+    """Đúng lỗi §7.48: giám khảo đổi sang thang phần trăm. Kẹp 100 -> 1.0 là đoán ý model
     rồi ghi kết quả đoán ra màn hình cho người dùng đọc."""
     client = ClientGia([_co(100.0), _co(0.9)])
     assert tim_mau_thuan([DOAN_NAM, DOAN_BON], embedding_service=None, client=client) == []
@@ -215,7 +215,7 @@ def test_so_viet_bang_chu_duoc_quy_ve_cung_dang_voi_chu_so():
 
 
 def test_so_viet_bang_chu_khac_nhau_van_bat_duoc():
-    """Ca mẫu của cả đồ án (§5.22) không chứa lấy một chữ số nào."""
+    """Ca mẫu của cả đồ án (§7.22) không chứa lấy một chữ số nào."""
     assert co_dau_hieu_bat_dong("Nhà nước có năm đặc điểm.", "Nhà nước có bốn đặc điểm.")
 
 
